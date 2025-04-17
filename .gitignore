@@ -1,0 +1,4 @@
+.zig-cache/
+
+# Build artifacts
+zig-out/
