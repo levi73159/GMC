@@ -128,8 +128,21 @@ fn badToken(self: *Self, err: ParseError) ParseError {
 fn parseExpression(self: *Self) ParseError!*tree.Node {
     if (self.match(.var_kw) or self.match(.const_kw)) {
         return self.parseVariableDecl();
-    } else if (self.match(.identifier) and self.matchP(.equal, 1)) {
-        return self.parseVariableAssign();
+    }
+    if (self.match(.identifier)) {
+        if (self.match(.equal)) {
+            return self.parseVariableAssign();
+        }
+        // zig fmt: off
+        if (self.match(.plus_equal) 
+            or self.match(.minus_equal) 
+            or self.match(.star_equal) 
+            or self.match(.slash_equal) 
+            or self.match(.plus_plus) 
+            or self.match(.minus_minus)) {
+            return self.parseVariableAssignOp();
+        }
+        // zig fmt: on
     }
 
     return self.parseTerm();
@@ -168,6 +181,45 @@ fn parseVariableAssign(self: *Self) ParseError!*tree.Node {
     _ = self.consume(.equal) orelse return self.badToken(error.ExpectedEqual);
     const value = try self.parseExpression();
     return self.allocNode(tree.Node{ .var_assign = .{ .identifier = identifier, .value = value } });
+}
+
+fn parseVariableAssignOp(self: *Self) ParseError!*tree.Node {
+    const identifier = self.consume(.identifier) orelse return self.badToken(error.ExpectedIdentifier);
+    const op = self.advance() orelse return error.MissingOperator;
+
+    const value = blk: {
+        if (op.kind == .plus_plus or op.kind == .minus_minus) {
+            break :blk try self.allocNode(tree.Node{ .number = .{ .integer = .{ .n = 1, .orginal = Token.init(.number, "1") } } }); // We create a token with pos == null
+        } else {
+            break :blk try self.parseExpression();
+        }
+    };
+
+    const new_op_kind: Token.Kind = switch (op.kind) {
+        .plus_plus => .plus,
+        .minus_minus => .minus,
+        .plus_equal => .plus,
+        .minus_equal => .minus,
+        .star_equal => .star,
+        .slash_equal => .slash,
+        else => return error.InvalidToken,
+    };
+
+    var new_op = Token.init(new_op_kind, op.lexeme);
+    _ = new_op.setPos(op.pos).setValue(op.value);
+
+    return self.allocNode(.{
+        .var_assign = .{
+            .identifier = identifier,
+            .value = try self.allocNode(tree.Node{
+                .bin_op = .{
+                    .left = try self.allocNode(tree.Node{ .identifier = identifier }),
+                    .op = new_op,
+                    .right = value,
+                },
+            }),
+        },
+    });
 }
 
 fn parseTerm(self: *Self) ParseError!*tree.Node {

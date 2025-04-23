@@ -14,6 +14,15 @@ pub const Kind = enum {
     semicolon,
     equal,
 
+    // multi character tokens
+    plus_equal,
+    minus_equal,
+    star_equal,
+    slash_equal,
+
+    plus_plus,
+    minus_minus,
+
     // literal tokens
     number,
     identifier,
@@ -60,7 +69,7 @@ pub fn init(kind: Kind, lexeme: []const u8) Self {
     };
 }
 
-pub fn setPos(self: *Self, pos: DebugPos) *Self {
+pub fn setPos(self: *Self, pos: ?DebugPos) *Self {
     self.pos = pos;
     return self;
 }
