@@ -166,13 +166,34 @@ fn isNumber(c: u8) bool {
     return (c >= '0' and c <= '9') or c == '.' or c == '_';
 }
 
+fn isHex(c: u8) bool {
+    return std.ascii.isHex(c) or c == '_';
+}
+
+fn isBinary(c: u8) bool {
+    return c == '0' or c == '1' or c == '_';
+}
+
 fn makeNumber(self: *Self) !Token {
     const start = self.index - 1;
     const start_column = self.column - 1;
 
     blk: {
-        while (isNumber(self.current() orelse break :blk)) {
+        const base_prefix = self.current() orelse break :blk;
+        if (base_prefix == 'x' or base_prefix == 'X') {
             _ = self.advance();
+            while (isHex(self.current() orelse break :blk)) {
+                _ = self.advance();
+            }
+        } else if (base_prefix == 'b' or base_prefix == 'B') {
+            _ = self.advance();
+            while (isBinary(self.current() orelse break :blk)) {
+                _ = self.advance();
+            }
+        } else {
+            while (isNumber(self.current() orelse break :blk)) {
+                _ = self.advance();
+            }
         }
     }
 

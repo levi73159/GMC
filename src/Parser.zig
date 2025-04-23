@@ -256,7 +256,7 @@ fn parsePrimary(self: *Self) ParseError!*tree.Node {
         const dot_count = std.mem.count(u8, tok.lexeme, ".");
         std.debug.assert(dot_count <= 1); // the lexer should have caught this already
         if (dot_count == 0) {
-            const integer = std.fmt.parseInt(i64, tok.lexeme, 0) catch |err| switch (err) {
+            const integer = std.fmt.parseInt(i65, tok.lexeme, 0) catch |err| switch (err) {
                 error.Overflow => return error.NumberOverflow,
                 error.InvalidCharacter => return error.InvalidNumber,
             };
