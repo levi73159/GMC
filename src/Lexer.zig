@@ -145,8 +145,20 @@ fn consume(self: *Self, c: u8) bool {
 
 // helper functions
 fn skipWhitespace(self: *Self) void {
-    while (std.ascii.isWhitespace(self.current() orelse return)) {
-        _ = self.advance();
+    while (true) {
+        const c = self.current() orelse return;
+
+        if (std.ascii.isWhitespace(c)) {
+            _ = self.advance();
+        } else if (c == '#') {
+            // Skip to end of line or end of file
+            while (self.current()) |ch| {
+                _ = self.advance();
+                if (ch == '\n') break;
+            }
+        } else {
+            return;
+        }
     }
 }
 

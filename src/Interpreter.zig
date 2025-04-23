@@ -132,6 +132,7 @@ pub fn eval(self: Self, nodes: []const *Node) void {
                     std.debug.print("{}\n", .{pos});
                     std.debug.print("line: {d}, column: {d}\n", .{ pos.line, pos.column });
                 }
+                return; // if error in program return instantly
             },
             .integer => |i| std.debug.print("Result: {d}\n", .{i}),
             .float => |f| std.debug.print("Result: {d}\n", .{f}),

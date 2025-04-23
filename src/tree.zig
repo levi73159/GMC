@@ -18,7 +18,10 @@ pub const Node = union(enum) {
 
     pub fn getLeftPos(self: Node) ?DebugPos {
         return switch (self) {
-            .number => |n| n.integer.orginal.pos,
+            .number => |n| switch (n) {
+                .integer => |i| i.orginal.pos,
+                .float => |f| f.orginal.pos,
+            },
             .identifier => |i| i.pos,
             .bin_op => |b| b.left.getLeftPos(),
             .unary_op => |u| u.op.pos,
@@ -29,7 +32,10 @@ pub const Node = union(enum) {
 
     pub fn getRightPos(self: Node) ?DebugPos {
         return switch (self) {
-            .number => |n| n.integer.orginal.pos,
+            .number => |n| switch (n) {
+                .integer => |i| i.orginal.pos,
+                .float => |f| f.orginal.pos,
+            },
             .identifier => |i| i.pos,
             .bin_op => |b| b.right.getRightPos(),
             .unary_op => |u| u.right.getRightPos(),
