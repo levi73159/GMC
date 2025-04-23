@@ -26,10 +26,26 @@ pub fn next(self: *Self) !?Token {
     return switch (c) {
         '(' => self.initToken(.left_paren, "("),
         ')' => self.initToken(.right_paren, ")"),
-        '+' => self.initToken(.plus, "+"),
-        '-' => self.initToken(.minus, "-"),
-        '*' => self.initToken(.star, "*"),
-        '/' => self.initToken(.slash, "/"),
+        '+' => plus: {
+            if (self.consume('=')) {
+                break :plus self.initToken(.plus_equal, "+=");
+            } else if (self.consume('+')) {
+                break :plus self.initToken(.plus_plus, "++");
+            } else {
+                break :plus self.initToken(.plus, "+");
+            }
+        },
+        '-' => minus: {
+            if (self.consume('=')) {
+                break :minus self.initToken(.minus_equal, "-=");
+            } else if (self.consume('-')) {
+                break :minus self.initToken(.minus_minus, "--");
+            } else {
+                break :minus self.initToken(.minus, "-");
+            }
+        },
+        '*' => self.initTokenOrOther(.star, .star_equal, "*", "*=", '*'),
+        '/' => self.initTokenOrOther(.slash, .slash_equal, "/", "/=", '/'),
         ';' => self.initToken(.semicolon, ";"),
         '=' => self.initToken(.equal, "="),
         '0'...'9' => try self.makeNumber(),
@@ -53,6 +69,19 @@ fn initToken(self: *Self, kind: Token.Kind, lexeme: []const u8) Token {
     var token = Token.init(kind, lexeme);
     _ = token.setPos(self.prev);
     return token;
+}
+
+fn initTokenOrOther(self: *Self, kind: Token.Kind, other: Token.Kind, lexeme: []const u8, other_lexeme: []const u8, char: u8) Token {
+    var start = self.prev; // save start
+    if (self.consume(char)) {
+        var token = Token.init(other, other_lexeme);
+        _ = token.setPos(start.combine(self.prev));
+        return token;
+    } else {
+        var token = Token.init(kind, lexeme);
+        _ = token.setPos(self.prev);
+        return token;
+    }
 }
 
 fn get(self: Self, i: usize) ?u8 {
@@ -102,6 +131,14 @@ fn peekN(self: Self, n: usize) ?u8 {
 fn match(self: *Self, c: u8) bool {
     if (self.current() orelse return false == c) {
         self.index += 1;
+        return true;
+    }
+    return false;
+}
+
+fn consume(self: *Self, c: u8) bool {
+    if (self.match(c)) {
+        _ = self.advance();
         return true;
     }
     return false;
