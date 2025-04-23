@@ -130,16 +130,16 @@ fn parseExpression(self: *Self) ParseError!*tree.Node {
         return self.parseVariableDecl();
     }
     if (self.match(.identifier)) {
-        if (self.match(.equal)) {
+        if (self.matchP(.equal, 1)) {
             return self.parseVariableAssign();
         }
         // zig fmt: off
-        if (self.match(.plus_equal) 
-            or self.match(.minus_equal) 
-            or self.match(.star_equal) 
-            or self.match(.slash_equal) 
-            or self.match(.plus_plus) 
-            or self.match(.minus_minus)) {
+        if (self.matchP(.plus_equal, 1) 
+            or self.matchP(.minus_equal, 1) 
+            or self.matchP(.star_equal, 1) 
+            or self.matchP(.slash_equal, 1) 
+            or self.matchP(.plus_plus, 1) 
+            or self.matchP(.minus_minus, 1)) {
             return self.parseVariableAssignOp();
         }
         // zig fmt: on

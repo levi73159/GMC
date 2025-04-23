@@ -44,8 +44,8 @@ pub fn next(self: *Self) !?Token {
                 break :minus self.initToken(.minus, "-");
             }
         },
-        '*' => self.initTokenOrOther(.star, .star_equal, "*", "*=", '*'),
-        '/' => self.initTokenOrOther(.slash, .slash_equal, "/", "/=", '/'),
+        '*' => self.initTokenOrOther(.star, .star_equal, "*", "*=", '='),
+        '/' => self.initTokenOrOther(.slash, .slash_equal, "/", "/=", '='),
         ';' => self.initToken(.semicolon, ";"),
         '=' => self.initToken(.equal, "="),
         '0'...'9' => try self.makeNumber(),
@@ -129,8 +129,7 @@ fn peekN(self: Self, n: usize) ?u8 {
 }
 
 fn match(self: *Self, c: u8) bool {
-    if (self.current() orelse return false == c) {
-        self.index += 1;
+    if ((self.current() orelse return false) == c) {
         return true;
     }
     return false;
