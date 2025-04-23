@@ -30,7 +30,10 @@ pub fn next(self: *Self) !?Token {
         '-' => self.initToken(.minus, "-"),
         '*' => self.initToken(.star, "*"),
         '/' => self.initToken(.slash, "/"),
+        ';' => self.initToken(.semicolon, ";"),
+        '=' => self.initToken(.equal, "="),
         '0'...'9' => try self.makeNumber(),
+        'a'...'z', 'A'...'Z', '_' => try self.makeIdentifier(),
         else => return error.InvalidCharacter,
     };
 }
@@ -48,7 +51,7 @@ pub fn makeTokens(self: *Self, allocator: mem.Allocator) ![]const Token {
 
 fn initToken(self: *Self, kind: Token.Kind, lexeme: []const u8) Token {
     var token = Token.init(kind, lexeme);
-    token.setPos(self.prev);
+    _ = token.setPos(self.prev);
     return token;
 }
 
@@ -117,6 +120,7 @@ fn isNumber(c: u8) bool {
 
 fn makeNumber(self: *Self) !Token {
     const start = self.index - 1;
+    const start_column = self.column - 1;
 
     blk: {
         while (isNumber(self.current() orelse break :blk)) {
@@ -126,13 +130,69 @@ fn makeNumber(self: *Self) !Token {
 
     const end = self.index;
     const lexeme = self.buffer[start..end];
-    var tok = Token.init(.number, lexeme);
-    tok.setPos(.{
+    const debug_pos = DebugPos{
         .start = start,
         .end = end,
         .orginal_buffer = self.buffer,
         .line = self.line,
-        .column = self.column,
-    });
+        .column = start_column,
+    };
+    self.prev = debug_pos;
+    if (mem.count(u8, lexeme, ".") > 1) {
+        return error.InvalidNumber;
+    }
+    var tok = Token.init(.number, lexeme);
+    _ = tok.setPos(debug_pos);
     return tok;
+}
+
+fn isIdentifier(c: u8) bool {
+    return std.ascii.isAlphanumeric(c) or c == '_';
+}
+
+fn makeIdentifier(self: *Self) !Token {
+    // check if it is a type then if not then it is an identifier
+
+    const start = self.index - 1;
+    const start_column = self.column - 1;
+
+    blk: {
+        while (isIdentifier(self.current() orelse break :blk)) {
+            _ = self.advance();
+        }
+    }
+
+    const end = self.index;
+    const lexeme = self.buffer[start..end];
+    const debug_pos = DebugPos{
+        .start = start,
+        .end = end,
+        .orginal_buffer = self.buffer,
+        .line = self.line,
+        .column = start_column,
+    };
+
+    self.prev = debug_pos;
+
+    if (isType(lexeme)) |value| {
+        var tok = Token.init(.type, lexeme);
+        _ = tok.setPos(debug_pos).setValue(value);
+        return tok;
+    } else if (Token.Kind.getKeyword(lexeme)) |kind| {
+        var tok = Token.init(kind, lexeme);
+        _ = tok.setPos(debug_pos);
+        return tok;
+    } else {
+        var tok = Token.init(.identifier, lexeme);
+        _ = tok.setPos(debug_pos);
+        return tok;
+    }
+}
+
+fn isType(lexeme: []const u8) ?Token.Value {
+    const type_value = std.meta.stringToEnum(Token.TypeValue, lexeme);
+    if (type_value) |value| {
+        return Token.Value{ .type = value };
+    }
+    return null;
 }

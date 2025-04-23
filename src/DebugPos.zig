@@ -25,3 +25,13 @@ pub fn format(self: Self, comptime _: []const u8, _: std.fmt.FormatOptions, writ
     try writer.writeByteNTimes(' ', offset);
     try writer.writeByteNTimes('^', width);
 }
+
+pub fn combine(self: Self, other: Self) Self {
+    return Self{
+        .orginal_buffer = self.orginal_buffer,
+        .start = self.start,
+        .end = other.end,
+        .line = self.line,
+        .column = self.column,
+    };
+}
