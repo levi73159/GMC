@@ -11,6 +11,15 @@ pub const Kind = enum {
     minus,
     star,
     slash,
+    percent,
+    ampersand,
+    pipe,
+    caret,
+    lt,
+    gt,
+    lt_lt, // <<
+    gt_gt, // >>
+
     semicolon,
     equal,
 

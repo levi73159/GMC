@@ -101,6 +101,118 @@ const Value = union(enum) {
         };
     }
 
+    pub fn mod(lhs: Value, rhs: Value) Value {
+        if (lhs == .runtime_error) return lhs;
+        if (rhs == .runtime_error) return rhs;
+
+        return switch (lhs) {
+            .integer => |i| switch (rhs) {
+                .integer => |j| Value{ .integer = @mod(i, j) },
+                .float => |f| Value{ .float = @mod(@as(f64, @floatFromInt(i)), f) },
+                else => Value.err("Invalid type", "Can't mod nonnumeric values", null),
+            },
+            .float => |f| switch (rhs) {
+                .integer => |i| Value{ .float = @mod(f, @as(f64, @floatFromInt(i))) },
+                .float => |j| Value{ .float = @mod(f, j) },
+                else => Value.err("Invalid type", "Can't mod nonnumeric values", null),
+            },
+            else => Value.err("Invalid type", "Can't mod nonnumeric values", null),
+        };
+    }
+
+    pub fn bitAnd(lhs: Value, rhs: Value) Value {
+        if (lhs == .runtime_error) return lhs;
+        if (rhs == .runtime_error) return rhs;
+        return switch (lhs) {
+            .integer => |i| switch (rhs) {
+                .integer => |j| Value{ .integer = i & j },
+                .float => Value.err("Invalid type", "Can't bitwise and on float", null),
+                else => Value.err("Invalid type", "Can't bitwise and nonnumeric values", null),
+            },
+            .float => Value.err("Invalid type", "Can't bitwise and on float", null),
+            else => Value.err("Invalid type", "Can't bitwise and nonnumeric values", null),
+        };
+    }
+
+    pub fn bitOr(lhs: Value, rhs: Value) Value {
+        if (lhs == .runtime_error) return lhs;
+        if (rhs == .runtime_error) return rhs;
+        return switch (lhs) {
+            .integer => |i| switch (rhs) {
+                .integer => |j| Value{ .integer = i | j },
+                .float => Value.err("Invalid type", "Can't bitwise or on float", null),
+                else => Value.err("Invalid type", "Can't bitwise or nonnumeric values", null),
+            },
+            .float => Value.err("Invalid type", "Can't bitwise or on float", null),
+            else => Value.err("Invalid type", "Can't bitwise or nonnumeric values", null),
+        };
+    }
+
+    pub fn bitXor(lhs: Value, rhs: Value) Value {
+        if (lhs == .runtime_error) return lhs;
+        if (rhs == .runtime_error) return rhs;
+        return switch (lhs) {
+            .integer => |i| switch (rhs) {
+                .integer => |j| Value{ .integer = i ^ j },
+                .float => Value.err("Invalid type", "Can't bitwise xor on float", null),
+                else => Value.err("Invalid type", "Can't bitwise xor nonnumeric values", null),
+            },
+            .float => Value.err("Invalid type", "Can't bitwise xor on float", null),
+            else => Value.err("Invalid type", "Can't bitwise xor nonnumeric values", null),
+        };
+    }
+
+    fn shiftCheck(rhs: Value) bool {
+        const check2 = switch (rhs) {
+            .integer => |i| i < @bitSizeOf(i65),
+            else => true, // so we can handle checking that ourself
+        };
+
+        return check2;
+    }
+
+    const OpFunc = fn (lhs: Value, rhs: Value) Value;
+    fn reverseShift(lhs: Value, rhs: Value, func: OpFunc) ?Value {
+        if (lhs == .runtime_error) return lhs;
+        if (rhs == .runtime_error) return rhs;
+
+        if (!shiftCheck(rhs)) return Value.err("Invalid shift", "Shift value out of range", null);
+
+        switch (rhs) {
+            .integer => |i| if (i < 0) return func(lhs, Value{ .integer = -i }), // reverse shift neg to pos
+            else => return null,
+        }
+        return null;
+    }
+
+    pub fn lshift(lhs: Value, rhs: Value) Value {
+        if (reverseShift(lhs, rhs, rshift)) |v| return v;
+
+        return switch (lhs) {
+            .integer => |i| switch (rhs) {
+                .integer => |j| Value{ .integer = i << @truncate(@as(u65, @intCast(j))) },
+                .float => Value.err("Invalid type", "Can't lshift on float", null),
+                else => Value.err("Invalid type", "Can't lshift nonnumeric values", null),
+            },
+            .float => Value.err("Invalid type", "Can't lshift on float", null),
+            else => Value.err("Invalid type", "Can't lshift nonnumeric values", null),
+        };
+    }
+
+    pub fn rshift(lhs: Value, rhs: Value) Value {
+        if (reverseShift(lhs, rhs, lshift)) |v| return v;
+
+        return switch (lhs) {
+            .integer => |i| switch (rhs) {
+                .integer => |j| Value{ .integer = i >> @truncate(@as(u65, @intCast(j))) },
+                .float => Value.err("Invalid type", "Can't rshift on float", null),
+                else => Value.err("Invalid type", "Can't rshift nonnumeric values", null),
+            },
+            .float => Value.err("Invalid type", "Can't rshift on float", null),
+            else => Value.err("Invalid type", "Can't rshift nonnumeric values", null),
+        };
+    }
+
     pub fn neg(self: Value) Value {
         if (self == .runtime_error) return self;
         return switch (self) {
@@ -177,6 +289,12 @@ fn evalBinOp(self: Self, og_node: *Node) Value {
         .minus => Value.sub(left, right),
         .star => Value.mul(left, right),
         .slash => Value.div(left, right),
+        .percent => Value.mod(left, right),
+        .ampersand => Value.bitAnd(left, right),
+        .pipe => Value.bitOr(left, right),
+        .caret => Value.bitXor(left, right),
+        .lt_lt => Value.lshift(left, right),
+        .gt_gt => Value.rshift(left, right),
         else => Value.err("Invalid operator", "Invalid Binary Operator", node.op.pos),
     };
 

@@ -145,7 +145,7 @@ fn parseExpression(self: *Self) ParseError!*tree.Node {
         // zig fmt: on
     }
 
-    return self.parseTerm();
+    return self.parseBitor();
 }
 
 fn parseVariableDecl(self: *Self) ParseError!*tree.Node {
@@ -222,12 +222,28 @@ fn parseVariableAssignOp(self: *Self) ParseError!*tree.Node {
     });
 }
 
+fn parseBitor(self: *Self) ParseError!*tree.Node {
+    return self.parseBinaryOperand(&[_]Token.Kind{.pipe}, &parseXor);
+}
+
+fn parseXor(self: *Self) ParseError!*tree.Node {
+    return self.parseBinaryOperand(&[_]Token.Kind{.caret}, &parseBitand);
+}
+
+fn parseBitand(self: *Self) ParseError!*tree.Node {
+    return self.parseBinaryOperand(&[_]Token.Kind{.ampersand}, &parseShift);
+}
+
+fn parseShift(self: *Self) ParseError!*tree.Node {
+    return self.parseBinaryOperand(&[_]Token.Kind{ .lt_lt, .gt_gt }, &parseTerm);
+}
+
 fn parseTerm(self: *Self) ParseError!*tree.Node {
-    return self.parseBinaryOperand(&[_]Token.Kind{ .plus, .minus }, &Self.parseFactor);
+    return self.parseBinaryOperand(&[_]Token.Kind{ .plus, .minus }, &parseFactor);
 }
 
 fn parseFactor(self: *Self) ParseError!*tree.Node {
-    return self.parseBinaryOperand(&[_]Token.Kind{ .star, .slash }, &Self.parseUnary);
+    return self.parseBinaryOperand(&[_]Token.Kind{ .star, .slash, .percent }, &parseUnary);
 }
 
 fn parseUnary(self: *Self) ParseError!*tree.Node {
