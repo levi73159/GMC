@@ -4,7 +4,7 @@ const DebugPos = @import("DebugPos.zig");
 const Self = @This();
 
 pub const Kind = enum {
-    // single character tokens
+    // Basic Tokens
     left_paren,
     right_paren,
     plus,
@@ -13,17 +13,23 @@ pub const Kind = enum {
     slash,
     percent,
     ampersand,
+    ampersand_ampersand,
     pipe,
+    pipe_pipe,
     caret,
     lt,
     gt,
     lt_lt, // <<
     gt_gt, // >>
+    lt_equal,
+    gt_equal,
+    equal_equal,
+    bang,
+    bang_equal,
 
     semicolon,
     equal,
 
-    // multi character tokens
     plus_equal,
     minus_equal,
     star_equal,
@@ -40,6 +46,8 @@ pub const Kind = enum {
     // keywords
     var_kw,
     const_kw,
+    true_kw,
+    false_kw,
 
     pub fn getKeyword(lexeme: []const u8) ?Kind {
         var buf: [2555]u8 = undefined;

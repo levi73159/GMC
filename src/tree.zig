@@ -10,6 +10,7 @@ pub fn BaseType(comptime T: type) type {
 
 pub const Node = union(enum) {
     number: Number,
+    boolean: BaseType(bool),
     identifier: Token,
     bin_op: BinOp,
     unary_op: UnaryOp,

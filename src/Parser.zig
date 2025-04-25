@@ -145,7 +145,7 @@ fn parseExpression(self: *Self) ParseError!*tree.Node {
         // zig fmt: on
     }
 
-    return self.parseBitor();
+    return self.parseLogicalOr();
 }
 
 fn parseVariableDecl(self: *Self) ParseError!*tree.Node {
@@ -222,6 +222,14 @@ fn parseVariableAssignOp(self: *Self) ParseError!*tree.Node {
     });
 }
 
+fn parseLogicalOr(self: *Self) ParseError!*tree.Node {
+    return self.parseBinaryOperand(&[_]Token.Kind{.pipe_pipe}, &parseLogicalAnd);
+}
+
+fn parseLogicalAnd(self: *Self) ParseError!*tree.Node {
+    return self.parseBinaryOperand(&[_]Token.Kind{.ampersand_ampersand}, &parseBitor);
+}
+
 fn parseBitor(self: *Self) ParseError!*tree.Node {
     return self.parseBinaryOperand(&[_]Token.Kind{.pipe}, &parseXor);
 }
@@ -231,7 +239,15 @@ fn parseXor(self: *Self) ParseError!*tree.Node {
 }
 
 fn parseBitand(self: *Self) ParseError!*tree.Node {
-    return self.parseBinaryOperand(&[_]Token.Kind{.ampersand}, &parseShift);
+    return self.parseBinaryOperand(&[_]Token.Kind{.ampersand}, &parseEquality);
+}
+
+fn parseEquality(self: *Self) ParseError!*tree.Node {
+    return self.parseBinaryOperand(&[_]Token.Kind{ .equal_equal, .bang_equal }, &parseRelational);
+}
+
+fn parseRelational(self: *Self) ParseError!*tree.Node {
+    return self.parseBinaryOperand(&[_]Token.Kind{ .lt, .gt, .lt_equal, .gt_equal }, &parseShift);
 }
 
 fn parseShift(self: *Self) ParseError!*tree.Node {
@@ -283,6 +299,13 @@ fn parsePrimary(self: *Self) ParseError!*tree.Node {
     }
     if (self.consume(.identifier)) |tok| {
         return self.allocNode(tree.Node{ .identifier = tok });
+    }
+
+    if (self.consume(.true_kw)) |tok| {
+        return self.allocNode(tree.Node{ .boolean = .{ .n = true, .orginal = tok } });
+    }
+    if (self.consume(.false_kw)) |tok| {
+        return self.allocNode(tree.Node{ .boolean = .{ .n = false, .orginal = tok } });
     }
 
     return error.ExpectedStatement;

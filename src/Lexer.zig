@@ -27,33 +27,57 @@ pub fn next(self: *Self) !?Token {
         '(' => self.initToken(.left_paren, "("),
         ')' => self.initToken(.right_paren, ")"),
         '+' => plus: {
+            const start = self.prev;
             if (self.consume('=')) {
+                self.prev = start.combine(self.prev);
                 break :plus self.initToken(.plus_equal, "+=");
             } else if (self.consume('+')) {
+                self.prev = start.combine(self.prev);
                 break :plus self.initToken(.plus_plus, "++");
-            } else {
-                break :plus self.initToken(.plus, "+");
             }
+            break :plus self.initToken(.plus, "+");
         },
         '-' => minus: {
             if (self.consume('=')) {
                 break :minus self.initToken(.minus_equal, "-=");
             } else if (self.consume('-')) {
                 break :minus self.initToken(.minus_minus, "--");
-            } else {
-                break :minus self.initToken(.minus, "-");
             }
+            break :minus self.initToken(.minus, "-");
         },
         '*' => self.initTokenOrOther(.star, .star_equal, "*", "*=", '='),
         '/' => self.initTokenOrOther(.slash, .slash_equal, "/", "/=", '='),
         '%' => self.initToken(.percent, "%"),
-        '&' => self.initToken(.ampersand, "&"),
-        '|' => self.initToken(.pipe, "|"),
+        '&' => self.initTokenOrOther(.ampersand, .ampersand_ampersand, "&", "&&", '&'),
+        '|' => self.initTokenOrOther(.pipe, .pipe_pipe, "|", "||", '|'),
         '^' => self.initToken(.caret, "^"),
-        '<' => self.initTokenOrOther(.lt, .lt_lt, "<", "<<", '<'),
-        '>' => self.initTokenOrOther(.gt, .gt_gt, ">", ">>", '>'),
+        '<' => less: {
+            const start = self.prev;
+            if (self.consume('=')) {
+                self.prev = start.combine(self.prev);
+                break :less self.initToken(.lt_equal, "<=");
+            }
+            if (self.consume('<')) {
+                self.prev = start.combine(self.prev);
+                break :less self.initToken(.lt_lt, "<<");
+            }
+            break :less self.initToken(.lt, "<");
+        },
+        '>' => greater: {
+            const start = self.prev;
+            if (self.consume('=')) {
+                self.prev = start.combine(self.prev);
+                break :greater self.initToken(.gt_equal, ">=");
+            }
+            if (self.consume('>')) {
+                self.prev = start.combine(self.prev);
+                break :greater self.initToken(.gt_gt, ">>");
+            }
+            break :greater self.initToken(.gt, ">");
+        },
         ';' => self.initToken(.semicolon, ";"),
-        '=' => self.initToken(.equal, "="),
+        '=' => self.initTokenOrOther(.equal, .equal_equal, "=", "==", '='),
+        '!' => self.initTokenOrOther(.bang, .bang_equal, "!", "!=", '!'),
         '0'...'9' => try self.makeNumber(),
         'a'...'z', 'A'...'Z', '_' => try self.makeIdentifier(),
         else => return error.InvalidCharacter,
