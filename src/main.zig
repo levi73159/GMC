@@ -62,7 +62,7 @@ pub fn main() !void {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    // var symbols = SymbolTable.init(gpa.allocator());
+    var symbols = SymbolTable.init(gpa.allocator());
     while (true) {
         std.debug.assert(arena.reset(.free_all) == true); // always returns true but we want to be sure
 
@@ -102,17 +102,19 @@ pub fn main() !void {
                 } else if (parser.prev) |prev| {
                     std.debug.print("{}\n", .{prev.pos.?});
                     std.debug.print("line: {d}, column: {d}\n", .{ prev.pos.?.line, prev.pos.?.column });
+                } else if (parser.tokens.len > 0) {
+                    const first = parser.tokens[0];
+                    std.debug.print("{}\n", .{first.pos.?});
+                    std.debug.print("line: {d}, column: {d}\n", .{ first.pos.?.line, first.pos.?.column });
                 } else {
-                    std.debug.print("position cannot be found\n", .{});
+                    std.debug.print("Position cannot be determined\n", .{});
                 }
                 continue;
             },
         };
         defer parser.allocator.free(nodes);
 
-        prettyPrint(nodes[0], 0);
-
-        // const interperter = Interpreter.init(&symbols);
-        // interperter.eval(nodes);
+        const interperter = Interpreter.init(&symbols);
+        interperter.eval(nodes);
     }
 }

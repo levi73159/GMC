@@ -77,7 +77,7 @@ pub fn next(self: *Self) !?Token {
         },
         ';' => self.initToken(.semicolon, ";"),
         '=' => self.initTokenOrOther(.equal, .equal_equal, "=", "==", '='),
-        '!' => self.initTokenOrOther(.bang, .bang_equal, "!", "!=", '!'),
+        '!' => self.initTokenOrOther(.bang, .bang_equal, "!", "!=", '='),
         '0'...'9' => try self.makeNumber(),
         'a'...'z', 'A'...'Z', '_' => try self.makeIdentifier(),
         else => return error.InvalidCharacter,

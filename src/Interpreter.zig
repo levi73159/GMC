@@ -15,8 +15,19 @@ const Error = struct {
 const Value = union(enum) {
     integer: i65,
     float: f64,
+    boolean: bool,
     none,
     runtime_error: Error,
+
+    // converts the value to a boolean value
+    fn convertToBool(self: Value) Value {
+        return switch (self) {
+            .integer => |i| Value{ .boolean = i != 0 },
+            .float => |f| Value{ .boolean = f != 0.0 },
+            .none => Value{ .boolean = false }, // none == false
+            .boolean, .runtime_error => self,
+        };
+    }
 
     pub fn err(msg: []const u8, extra: []const u8, pos: ?Pos) Value {
         return Value{ .runtime_error = Error{ .msg = msg, .extra = extra, .pos = pos } };
@@ -213,6 +224,137 @@ const Value = union(enum) {
         };
     }
 
+    // logical operators
+    pub fn logAnd(lhs: Value, rhs: Value) Value {
+        const lhsb = lhs.convertToBool(); // convert to bool or runtime_error
+        if (lhsb == .runtime_error) return lhsb;
+        if (!lhsb.boolean) return Value{ .boolean = false };
+
+        return rhs.convertToBool();
+    }
+
+    pub fn logOr(lhs: Value, rhs: Value) Value {
+        const lhsb = lhs.convertToBool(); // convert to bool or runtime_error
+        if (lhsb == .runtime_error) return lhsb;
+        if (lhsb.boolean) return Value{ .boolean = true };
+
+        return rhs.convertToBool();
+    }
+
+    pub fn equal(lhs: Value, rhs: Value) Value {
+        if (lhs == .runtime_error) return lhs;
+        if (rhs == .runtime_error) return rhs;
+
+        return switch (lhs) {
+            .integer => |i| switch (rhs) {
+                .integer => |j| Value{ .boolean = i == j },
+                .float => |f| Value{ .boolean = @as(f64, @floatFromInt(i)) == f },
+                .boolean => |b| Value{ .boolean = b == (i != 0) },
+                .none => Value{ .boolean = i == 0 },
+                else => Value.err("Invalid type", "Can't compare nonnumeric values", null),
+            },
+            .float => |f| switch (rhs) {
+                .integer => |i| Value{ .boolean = f == @as(f64, @floatFromInt(i)) },
+                .float => |j| Value{ .boolean = f == j },
+                .boolean => |b| Value{ .boolean = b == (f != 0.0) },
+                .none => Value{ .boolean = f == 0.0 },
+                else => Value.err("Invalid type", "Can't compare nonnumeric values", null),
+            },
+            .boolean => |b| switch (rhs) {
+                .integer => |i| Value{ .boolean = b == (i != 0) },
+                .float => |f| Value{ .boolean = b == (f != 0.0) },
+                .boolean => |j| Value{ .boolean = b == j },
+                else => Value.err("Invalid type", "Can't compare nonnumeric values", null),
+            },
+            .none => switch (rhs) {
+                .integer => |i| Value{ .boolean = i == 0 },
+                .float => |f| Value{ .boolean = f == 0.0 },
+                else => Value.err("Invalid type", "Can't compare nonnumeric values", null),
+            },
+            else => Value.err("Invalid type", "Can't compare nonnumeric values", null),
+        };
+    }
+
+    pub fn notEqual(lhs: Value, rhs: Value) Value {
+        return equal(lhs, rhs).not();
+    }
+
+    pub fn less(lhs: Value, rhs: Value) Value {
+        if (lhs == .runtime_error) return lhs;
+        if (rhs == .runtime_error) return rhs;
+        return switch (lhs) {
+            .integer => |i| switch (rhs) {
+                .integer => |j| Value{ .boolean = i < j },
+                .float => |f| Value{ .boolean = @as(f64, @floatFromInt(i)) < f },
+                .none => Value{ .boolean = i < 0 },
+                else => Value.err("Invalid type", "Can't compare nonnumeric values", null),
+            },
+            .float => |f| switch (rhs) {
+                .integer => |i| Value{ .boolean = f < @as(f64, @floatFromInt(i)) },
+                .float => |j| Value{ .boolean = f < j },
+                .none => Value{ .boolean = f < 0.0 },
+                else => Value.err("Invalid type", "Can't compare nonnumeric values", null),
+            },
+            .none => switch (rhs) {
+                .integer => |i| Value{ .boolean = 0 < i },
+                .float => |f| Value{ .boolean = 0.0 < f },
+                .none => Value{ .boolean = false },
+                else => Value.err("Invalid type", "Can't compare nonnumeric values", null),
+            },
+            else => Value.err("Invalid type", "Can't compare nonnumeric values", null),
+        };
+    }
+
+    pub fn greater(lhs: Value, rhs: Value) Value {
+        if (lhs == .runtime_error) return lhs;
+        if (rhs == .runtime_error) return rhs;
+        return switch (lhs) {
+            .integer => |i| switch (rhs) {
+                .integer => |j| Value{ .boolean = i > j },
+                .float => |f| Value{ .boolean = @as(f64, @floatFromInt(i)) > f },
+                .none => Value{ .boolean = i > 0 },
+                else => Value.err("Invalid type", "Can't compare nonnumeric values", null),
+            },
+            .float => |f| switch (rhs) {
+                .integer => |i| Value{ .boolean = f > @as(f64, @floatFromInt(i)) },
+                .float => |j| Value{ .boolean = f > j },
+                .none => Value{ .boolean = f > 0.0 },
+                else => Value.err("Invalid type", "Can't compare nonnumeric values", null),
+            },
+            .none => switch (rhs) {
+                .integer => |i| Value{ .boolean = 0 > i },
+                .float => |f| Value{ .boolean = 0.0 > f },
+                .none => Value{ .boolean = false },
+                else => Value.err("Invalid type", "Can't compare nonnumeric values", null),
+            },
+            else => Value.err("Invalid type", "Can't compare nonnumeric values", null),
+        };
+    }
+
+    pub fn greaterEqual(lhs: Value, rhs: Value) Value {
+        const gthen = greater(lhs, rhs);
+        if (gthen == .runtime_error) return gthen;
+        std.debug.assert(gthen == .boolean);
+        if (gthen.boolean == true) return Value{ .boolean = true };
+
+        const eql = equal(lhs, rhs);
+        if (eql == .runtime_error) return eql;
+        std.debug.assert(eql == .boolean);
+        return Value{ .boolean = eql.boolean };
+    }
+
+    pub fn lessEqual(lhs: Value, rhs: Value) Value {
+        const lthen = less(lhs, rhs);
+        if (lthen == .runtime_error) return lthen;
+        std.debug.assert(lthen == .boolean);
+        if (lthen.boolean == true) return Value{ .boolean = true };
+
+        const eql = equal(lhs, rhs);
+        if (eql == .runtime_error) return eql;
+        std.debug.assert(eql == .boolean);
+        return Value{ .boolean = eql.boolean };
+    }
+
     pub fn neg(self: Value) Value {
         if (self == .runtime_error) return self;
         return switch (self) {
@@ -220,6 +362,13 @@ const Value = union(enum) {
             .float => |f| Value{ .float = -f },
             else => Value.err("Invalid type", "Can't negate nonnumeric values", null),
         };
+    }
+
+    pub fn not(self: Value) Value {
+        const val = self.convertToBool(); // convert to bool or runtime_error
+        if (val == .runtime_error) return val;
+        std.debug.assert(val == .boolean);
+        return Value{ .boolean = !val.boolean };
     }
 };
 
@@ -246,8 +395,9 @@ pub fn eval(self: Self, nodes: []const *Node) void {
                 }
                 return; // if error in program return instantly
             },
-            .integer => |i| std.debug.print("Result: {d}\n", .{i}),
+            .integer => |i| std.debug.print("Result: {}\n", .{i}),
             .float => |f| std.debug.print("Result: {d}\n", .{f}),
+            .boolean => |b| std.debug.print("Result: {}\n", .{b}),
             .none => std.debug.print("Result: None\n", .{}),
         }
     }
@@ -256,6 +406,7 @@ pub fn eval(self: Self, nodes: []const *Node) void {
 pub fn evalNode(self: Self, node: *Node) Value {
     return switch (node.*) {
         .number => self.evalNumber(node.number),
+        .boolean => Value{ .boolean = node.boolean.n },
         .bin_op => self.evalBinOp(node),
         .unary_op => self.evalUnaryOp(node),
         .var_decl => self.evalVarDecl(node),
@@ -278,6 +429,24 @@ fn evalBinOp(self: Self, og_node: *Node) Value {
         if (left.runtime_error.pos == null) left.runtime_error.pos = node.left.getPos();
         return left;
     }
+
+    // short circuiting operators
+    switch (node.op.kind) {
+        .ampersand_ampersand => {
+            const left_bool = left.convertToBool();
+            if (left_bool == .runtime_error) return left_bool;
+            std.debug.assert(left_bool == .boolean);
+            if (left_bool.boolean == false) return Value{ .boolean = false };
+        },
+        .pipe_pipe => {
+            const left_bool = left.convertToBool();
+            if (left_bool == .runtime_error) return left_bool;
+            std.debug.assert(left_bool == .boolean);
+            if (left_bool.boolean == true) return Value{ .boolean = true };
+        },
+        else => {},
+    }
+
     var right = self.evalNode(node.right);
     if (right == .runtime_error) {
         if (right.runtime_error.pos == null) right.runtime_error.pos = node.right.getPos();
@@ -295,6 +464,14 @@ fn evalBinOp(self: Self, og_node: *Node) Value {
         .caret => Value.bitXor(left, right),
         .lt_lt => Value.lshift(left, right),
         .gt_gt => Value.rshift(left, right),
+        .equal_equal => Value.equal(left, right),
+        .bang_equal => Value.notEqual(left, right),
+        .lt => Value.less(left, right),
+        .lt_equal => Value.lessEqual(left, right),
+        .gt => Value.greater(left, right),
+        .gt_equal => Value.greaterEqual(left, right),
+        .ampersand_ampersand => Value.logAnd(left, right),
+        .pipe_pipe => Value.logOr(left, right),
         else => Value.err("Invalid operator", "Invalid Binary Operator", node.op.pos),
     };
 
@@ -315,6 +492,8 @@ fn evalUnaryOp(self: Self, og_node: *Node) Value {
 
     var result = switch (node.op.kind) {
         .minus => Value.neg(right),
+        .plus => right, // ignore + just in case it does not in the Parser
+        .bang => Value.not(right),
         else => Value.err("Invalid operator", "Invalid Unary Operator", node.op.pos),
     };
 

@@ -271,6 +271,10 @@ fn parseUnary(self: *Self) ParseError!*tree.Node {
         const number = try self.parseUnary();
         return number; // ignore +
     }
+    if (self.consume(.bang)) |tok| {
+        const right = try self.parseUnary();
+        return self.allocNode(tree.Node{ .unary_op = .{ .op = tok, .right = right } });
+    }
 
     return self.parsePrimary();
 }
