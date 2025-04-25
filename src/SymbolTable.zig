@@ -16,6 +16,8 @@ pub const SymbolValue = union(enum) {
     f32: f32,
     f64: f64,
 
+    bool: bool,
+
     null: void,
 };
 pub const SymbolType = std.meta.Tag(SymbolValue);

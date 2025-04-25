@@ -547,6 +547,12 @@ fn safeFloatCast(comptime TO: type, v: Value) !TO {
     }
 }
 
+fn safeBoolCast(v: Value) !bool {
+    const new = v.convertToBool();
+    if (new == .runtime_error) return error.InvalidCast;
+    return new.boolean;
+}
+
 fn castToSymbolValue(v: Value, ty: TypeVal) !SymbolTable.SymbolValue {
     const SymVal = SymbolTable.SymbolValue;
     return switch (ty) {
@@ -561,6 +567,8 @@ fn castToSymbolValue(v: Value, ty: TypeVal) !SymbolTable.SymbolValue {
 
         .f32 => SymVal{ .f32 = try safeFloatCast(f32, v) },
         .f64 => SymVal{ .f64 = try safeFloatCast(f64, v) },
+
+        .bool => SymVal{ .bool = try safeBoolCast(v) },
     };
 }
 
@@ -578,6 +586,8 @@ fn castToValue(v: SymbolTable.SymbolValue) Value {
         .f32 => |f| Value{ .float = f },
         .f64 => |f| Value{ .float = f },
         .null => Value.none,
+
+        .bool => |b| Value{ .boolean = b },
     };
 }
 
@@ -594,6 +604,8 @@ fn getTypeValFromSymbolValue(v: SymbolTable.SymbolValue) !TypeVal {
 
         .f32 => TypeVal.f32,
         .f64 => TypeVal.f64,
+
+        .bool => TypeVal.bool,
 
         .null => return error.InvalidCast,
     };
