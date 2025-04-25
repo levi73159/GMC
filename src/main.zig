@@ -13,15 +13,7 @@ fn printTokens(tokens: []const Token) void {
 }
 
 pub fn tokenToString(token: Token) []const u8 {
-    return switch (token.kind) {
-        .plus => "+",
-        .minus => "-",
-        .star => "*",
-        .slash => "/",
-        .number => "number",
-        // Add more as needed
-        else => "unknown",
-    };
+    return token.lexeme;
 }
 
 pub fn prettyPrint(node: *const Node, indent: usize) void {
@@ -31,9 +23,10 @@ pub fn prettyPrint(node: *const Node, indent: usize) void {
 
     switch (node.*) {
         .number => |num| switch (num) {
-            .integer => |i| stdout.print("Integer({d})\n", .{i.n}) catch return,
+            .integer => |i| stdout.print("Integer({})\n", .{i.n}) catch return,
             .float => |f| stdout.print("Float({d})\n", .{f.n}) catch return,
         },
+        .boolean => |b| stdout.print("Boolean({})\n", .{b.n}) catch return,
         .bin_op => |op| {
             stdout.print("BinOp({s})\n", .{tokenToString(op.op)}) catch return;
             prettyPrint(op.left, indent + 1);
@@ -69,7 +62,7 @@ pub fn main() !void {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var symbols = SymbolTable.init(gpa.allocator());
+    // var symbols = SymbolTable.init(gpa.allocator());
     while (true) {
         std.debug.assert(arena.reset(.free_all) == true); // always returns true but we want to be sure
 
@@ -117,7 +110,9 @@ pub fn main() !void {
         };
         defer parser.allocator.free(nodes);
 
-        const interperter = Interpreter.init(&symbols);
-        interperter.eval(nodes);
+        prettyPrint(nodes[0], 0);
+
+        // const interperter = Interpreter.init(&symbols);
+        // interperter.eval(nodes);
     }
 }
