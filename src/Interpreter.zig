@@ -264,11 +264,14 @@ const Value = union(enum) {
                 .integer => |i| Value{ .boolean = b == (i != 0) },
                 .float => |f| Value{ .boolean = b == (f != 0.0) },
                 .boolean => |j| Value{ .boolean = b == j },
+                .none => Value{ .boolean = !b },
                 else => Value.err("Invalid type", "Can't compare nonnumeric values", null),
             },
             .none => switch (rhs) {
                 .integer => |i| Value{ .boolean = i == 0 },
                 .float => |f| Value{ .boolean = f == 0.0 },
+                .boolean => |b| Value{ .boolean = false == b },
+                .none => Value{ .boolean = true },
                 else => Value.err("Invalid type", "Can't compare nonnumeric values", null),
             },
             else => Value.err("Invalid type", "Can't compare nonnumeric values", null),
@@ -569,6 +572,7 @@ fn castToSymbolValue(v: Value, ty: TypeVal) !SymbolTable.SymbolValue {
         .f64 => SymVal{ .f64 = try safeFloatCast(f64, v) },
 
         .bool => SymVal{ .bool = try safeBoolCast(v) },
+        .void => SymVal{ .void = {} },
     };
 }
 
@@ -585,9 +589,9 @@ fn castToValue(v: SymbolTable.SymbolValue) Value {
 
         .f32 => |f| Value{ .float = f },
         .f64 => |f| Value{ .float = f },
-        .null => Value.none,
 
         .bool => |b| Value{ .boolean = b },
+        .void => Value{ .none = {} },
     };
 }
 
@@ -606,8 +610,7 @@ fn getTypeValFromSymbolValue(v: SymbolTable.SymbolValue) !TypeVal {
         .f64 => TypeVal.f64,
 
         .bool => TypeVal.bool,
-
-        .null => return error.InvalidCast,
+        .void => TypeVal.void,
     };
 }
 

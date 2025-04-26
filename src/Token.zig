@@ -7,6 +7,9 @@ pub const Kind = enum {
     // Basic Tokens
     left_paren,
     right_paren,
+    left_curly_bracket,
+    right_curly_bracket,
+
     plus,
     minus,
     star,
@@ -48,6 +51,8 @@ pub const Kind = enum {
     const_kw,
     true_kw,
     false_kw,
+    if_kw,
+    else_kw,
 
     pub fn getKeyword(lexeme: []const u8) ?Kind {
         var buf: [2555]u8 = undefined;
@@ -68,6 +73,7 @@ pub const TypeValue = enum {
     f32,
     f64,
     bool,
+    void,
 };
 
 pub const Value = union(enum) {

@@ -16,6 +16,12 @@ pub fn tokenToString(token: Token) []const u8 {
     return token.lexeme;
 }
 
+pub fn printBlock(block: []const *Node, indent: usize) void {
+    for (block) |node| {
+        prettyPrint(node, indent);
+    }
+}
+
 pub fn prettyPrint(node: *const Node, indent: usize) void {
     const stdout = std.io.getStdOut().writer();
 
@@ -27,6 +33,10 @@ pub fn prettyPrint(node: *const Node, indent: usize) void {
             .float => |f| stdout.print("Float({d})\n", .{f.n}) catch return,
         },
         .boolean => |b| stdout.print("Boolean({})\n", .{b.n}) catch return,
+        .block => |b| {
+            stdout.print("Block\n", .{}) catch return;
+            printBlock(b.nodes, indent + 1);
+        },
         .bin_op => |op| {
             stdout.print("BinOp({s})\n", .{tokenToString(op.op)}) catch return;
             prettyPrint(op.left, indent + 1);
@@ -48,6 +58,14 @@ pub fn prettyPrint(node: *const Node, indent: usize) void {
             stdout.print("VarAssign({s})\n", .{v.identifier.lexeme}) catch return;
             prettyPrint(v.value, indent + 1);
         },
+        .ifstmt => |i| {
+            stdout.print("IfStmt\n", .{}) catch return;
+            prettyPrint(i.condition, indent + 1);
+            prettyPrint(i.then, indent + 1);
+            if (i.else_node) |else_block| {
+                prettyPrint(else_block, indent + 1);
+            }
+        },
     }
 }
 
@@ -62,7 +80,7 @@ pub fn main() !void {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var symbols = SymbolTable.init(gpa.allocator());
+    // var symbols = SymbolTable.init(gpa.allocator());
     while (true) {
         std.debug.assert(arena.reset(.free_all) == true); // always returns true but we want to be sure
 
@@ -114,7 +132,9 @@ pub fn main() !void {
         };
         defer parser.allocator.free(nodes);
 
-        const interperter = Interpreter.init(&symbols);
-        interperter.eval(nodes);
+        prettyPrint(nodes[0], 0);
+
+        // const interperter = Interpreter.init(&symbols);
+        // interperter.eval(nodes);
     }
 }

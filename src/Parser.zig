@@ -18,9 +18,12 @@ const ParseError = error{
     ExpectedEqual,
     ExpectedIdentifier,
     ExpectedType,
+    ExpectedElse,
     OutOfMemory,
     MissingOperator,
     MissingParen,
+    MissingBracket,
+    MissingCurlyBracket,
     NumberOverflow,
     InvalidNumber,
 };
@@ -84,7 +87,7 @@ pub fn parse(self: *Self) ParseError![]const *tree.Node {
 
 pub fn parseInstruction(self: *Self) ParseError!?*tree.Node {
     if (self.current() == null) return null;
-    return self.parseStatement();
+    return self.parseBlock(&parseStatement); // if no block parse statement
 }
 
 const ParseFn = *const fn (*Self) ParseError!*tree.Node;
@@ -112,7 +115,46 @@ fn parseBinaryOperand(self: *Self, operators: []const Token.Kind, next: ParseFn)
     return left;
 }
 
+fn parseBlock(self: *Self, next: ParseFn) ParseError!*tree.Node {
+    if (self.consume(.left_curly_bracket)) |start| {
+        var nodes: std.ArrayList(*tree.Node) = std.ArrayList(*tree.Node).init(self.allocator);
+        errdefer {
+            for (nodes.items) |node| self.allocator.destroy(node);
+            nodes.deinit();
+        }
+
+        while (self.current() != null and !self.match(.right_curly_bracket)) {
+            if (try self.parseInstruction()) |node| { // or should we use try self.parseStatement()?
+                try nodes.append(node);
+            }
+        }
+
+        const end = self.consume(.right_curly_bracket) orelse return self.badToken(error.MissingCurlyBracket);
+
+        return self.allocNode(tree.Node{
+            .block = .{
+                .start = start,
+                .nodes = try nodes.toOwnedSlice(),
+                .end = end,
+            },
+        });
+    }
+
+    return next(self);
+}
+
 fn parseStatement(self: *Self) ParseError!*tree.Node {
+    if (self.match(.if_kw)) {
+        const node = try self.parseIf(false);
+        if (node.ifstmt.isBlockless()) {
+            if (self.consume(.semicolon)) |_| {
+                return node;
+            }
+            return error.ExpectedSemicolon;
+        } else {
+            return node;
+        }
+    }
     const expr = try self.parseExpression();
     if (self.consume(.semicolon)) |_| {
         return expr;
@@ -120,7 +162,7 @@ fn parseStatement(self: *Self) ParseError!*tree.Node {
     return error.ExpectedSemicolon;
 }
 
-fn badToken(self: *Self, err: ParseError) ParseError {
+inline fn badToken(self: *Self, err: ParseError) ParseError {
     _ = self.advance();
     return err;
 }
@@ -144,6 +186,8 @@ fn parseExpression(self: *Self) ParseError!*tree.Node {
         }
         // zig fmt: on
     }
+    // use match instead of consume because the parseIf checks for the if keyword
+    if (self.match(.if_kw)) return self.parseIf(true);
 
     return self.parseLogicalOr();
 }
@@ -189,7 +233,9 @@ fn parseVariableAssignOp(self: *Self) ParseError!*tree.Node {
 
     const value = blk: {
         if (op.kind == .plus_plus or op.kind == .minus_minus) {
-            break :blk try self.allocNode(tree.Node{ .number = .{ .integer = .{ .n = 1, .orginal = Token.init(.number, "1") } } }); // We create a token with pos == null
+            var new_tok = Token.init(.number, "1");
+            _ = new_tok.setPos(op.pos);
+            break :blk try self.allocNode(tree.Node{ .number = .{ .integer = .{ .n = 1, .orginal = new_tok } } }); // We create a token with pos == null
         } else {
             break :blk try self.parseExpression();
         }
@@ -218,6 +264,45 @@ fn parseVariableAssignOp(self: *Self) ParseError!*tree.Node {
                     .right = value,
                 },
             }),
+        },
+    });
+}
+
+fn parseIf(self: *Self, expect_value: bool) ParseError!*tree.Node {
+    const start = self.consume(.if_kw) orelse return self.badToken(error.UnexpectedToken); // should not happen so we don't make the error clear
+    _ = self.consume(.left_paren) orelse return self.badToken(error.MissingParen);
+    // parse the condition (expression)
+    const condition = try self.parseExpression();
+    _ = self.consume(.right_paren) orelse return self.badToken(error.MissingParen);
+
+    // const then = try if (self.match(.left_curly_bracket)) self.parseBlock() else self.parseExpression();
+    const then = try self.parseBlock(&parseExpression); // because we don't want to parse a statement (aka expr with semicolon)
+    // if this was parse statement it will look like this
+    // const u8 x = if (true) 10;; because were already parsing a statement
+    if (expect_value) { // gurantee we have an else
+        if (!self.match(.if_kw) and !self.match(.else_kw)) {
+            return self.badToken(error.ExpectedElse);
+        }
+    }
+
+    if (self.consume(.else_kw)) |_| {
+        const else_node = try self.parseBlock(&parseExpression);
+        return self.allocNode(tree.Node{
+            .ifstmt = .{
+                .start = start,
+                .condition = condition,
+                .then = then,
+                .else_node = else_node,
+            },
+        });
+    }
+
+    return self.allocNode(tree.Node{
+        .ifstmt = .{
+            .start = start,
+            .condition = condition,
+            .then = then,
+            .else_node = null,
         },
     });
 }

@@ -26,6 +26,8 @@ pub fn next(self: *Self) !?Token {
     return switch (c) {
         '(' => self.initToken(.left_paren, "("),
         ')' => self.initToken(.right_paren, ")"),
+        '{' => self.initToken(.left_curly_bracket, "{"),
+        '}' => self.initToken(.right_curly_bracket, "}"),
         '+' => plus: {
             const start = self.prev;
             if (self.consume('=')) {

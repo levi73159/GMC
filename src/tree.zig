@@ -11,11 +11,13 @@ pub fn BaseType(comptime T: type) type {
 pub const Node = union(enum) {
     number: Number,
     boolean: BaseType(bool),
+    block: Block,
     identifier: Token,
     bin_op: BinOp,
     unary_op: UnaryOp,
     var_decl: VariableDecl,
     var_assign: VariableAssign,
+    ifstmt: IfStmt,
 
     pub fn getLeftPos(self: Node) ?DebugPos {
         return switch (self) {
@@ -24,11 +26,13 @@ pub const Node = union(enum) {
                 .float => |f| f.orginal.pos,
             },
             .boolean => |b| b.orginal.pos,
+            .block => |b| b.start.pos,
             .identifier => |i| i.pos,
             .bin_op => |b| b.left.getLeftPos(),
             .unary_op => |u| u.op.pos,
             .var_decl => |v| v.is_const.orginal.pos,
             .var_assign => |v| v.identifier.pos,
+            .ifstmt => |i| i.start.pos,
         };
     }
 
@@ -39,11 +43,13 @@ pub const Node = union(enum) {
                 .float => |f| f.orginal.pos,
             },
             .boolean => |b| b.orginal.pos,
+            .block => |b| b.end.pos,
             .identifier => |i| i.pos,
             .bin_op => |b| b.right.getRightPos(),
             .unary_op => |u| u.right.getRightPos(),
             .var_decl => |v| if (v.value) |value| value.getRightPos() else v.identifier.pos,
             .var_assign => |v| v.value.getRightPos(),
+            .ifstmt => |i| i.then.getRightPos(), // TODO: Update this when add new nodes to if statement
         };
     }
 
@@ -59,6 +65,12 @@ pub const Node = union(enum) {
 pub const Number = union(enum) {
     integer: BaseType(i65),
     float: BaseType(f64),
+};
+
+pub const Block = struct {
+    start: Token,
+    nodes: []const *Node,
+    end: Token,
 };
 
 pub const BinOp = struct {
@@ -82,4 +94,24 @@ pub const VariableDecl = struct {
 pub const VariableAssign = struct {
     identifier: Token,
     value: *Node,
+};
+
+pub const IfStmt = struct {
+    start: Token, // aka the if keyword token
+    condition: *Node,
+    then: *Node, // block or single expression
+    else_node: ?*Node,
+
+    pub fn isBlockless(self: IfStmt) bool {
+        if (self.else_node) |else_node| {
+            return switch (else_node.*) {
+                .block => false,
+                else => true,
+            };
+        }
+        return switch (self.then.*) {
+            .block => false,
+            else => true,
+        };
+    }
 };
