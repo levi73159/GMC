@@ -20,7 +20,7 @@ const Value = union(enum) {
     runtime_error: Error,
 
     // converts the value to a boolean value
-    fn convertToBool(self: Value) Value {
+    pub fn convertToBool(self: Value) Value {
         return switch (self) {
             .integer => |i| Value{ .boolean = i != 0 },
             .float => |f| Value{ .boolean = f != 0.0 },
@@ -379,134 +379,6 @@ const Self = @This();
 
 symbols: *SymbolTable,
 
-pub fn init(symbols: *SymbolTable) Self {
-    return Self{ .symbols = symbols };
-}
-
-pub fn eval(self: Self, nodes: []const *Node) void {
-    for (nodes) |node| {
-        const result = self.evalNode(node);
-        switch (result) {
-            .runtime_error => |err| {
-                std.debug.print("Runtime error: {s}\n", .{err.msg});
-                if (err.extra) |extra| {
-                    std.debug.print("{s}\n", .{extra});
-                }
-                if (err.pos) |pos| {
-                    std.debug.print("{}\n", .{pos});
-                    std.debug.print("line: {d}, column: {d}\n", .{ pos.line, pos.column });
-                }
-                return; // if error in program return instantly
-            },
-            .integer => |i| std.debug.print("Result: {}\n", .{i}),
-            .float => |f| std.debug.print("Result: {d}\n", .{f}),
-            .boolean => |b| std.debug.print("Result: {}\n", .{b}),
-            .none => std.debug.print("Result: None\n", .{}),
-        }
-    }
-}
-
-pub fn evalNode(self: Self, node: *Node) Value {
-    return switch (node.*) {
-        .number => self.evalNumber(node.number),
-        .boolean => Value{ .boolean = node.boolean.n },
-        .bin_op => self.evalBinOp(node),
-        .unary_op => self.evalUnaryOp(node),
-        .var_decl => self.evalVarDecl(node),
-        .var_assign => self.evalVarAssign(node),
-        .identifier => self.evalIdentifier(node),
-    };
-}
-
-fn evalNumber(_: Self, node: tree.Number) Value {
-    return switch (node) {
-        .integer => |i| Value{ .integer = i.n },
-        .float => |f| Value{ .float = f.n },
-    };
-}
-
-fn evalBinOp(self: Self, og_node: *Node) Value {
-    const node = og_node.bin_op;
-    var left = self.evalNode(node.left);
-    if (left == .runtime_error) {
-        if (left.runtime_error.pos == null) left.runtime_error.pos = node.left.getPos();
-        return left;
-    }
-
-    // short circuiting operators
-    switch (node.op.kind) {
-        .ampersand_ampersand => {
-            const left_bool = left.convertToBool();
-            if (left_bool == .runtime_error) return left_bool;
-            std.debug.assert(left_bool == .boolean);
-            if (left_bool.boolean == false) return Value{ .boolean = false };
-        },
-        .pipe_pipe => {
-            const left_bool = left.convertToBool();
-            if (left_bool == .runtime_error) return left_bool;
-            std.debug.assert(left_bool == .boolean);
-            if (left_bool.boolean == true) return Value{ .boolean = true };
-        },
-        else => {},
-    }
-
-    var right = self.evalNode(node.right);
-    if (right == .runtime_error) {
-        if (right.runtime_error.pos == null) right.runtime_error.pos = node.right.getPos();
-        return right;
-    }
-
-    var result = switch (node.op.kind) {
-        .plus => Value.add(left, right),
-        .minus => Value.sub(left, right),
-        .star => Value.mul(left, right),
-        .slash => Value.div(left, right),
-        .percent => Value.mod(left, right),
-        .ampersand => Value.bitAnd(left, right),
-        .pipe => Value.bitOr(left, right),
-        .caret => Value.bitXor(left, right),
-        .lt_lt => Value.lshift(left, right),
-        .gt_gt => Value.rshift(left, right),
-        .equal_equal => Value.equal(left, right),
-        .bang_equal => Value.notEqual(left, right),
-        .lt => Value.less(left, right),
-        .lt_equal => Value.lessEqual(left, right),
-        .gt => Value.greater(left, right),
-        .gt_equal => Value.greaterEqual(left, right),
-        .ampersand_ampersand => Value.logAnd(left, right),
-        .pipe_pipe => Value.logOr(left, right),
-        else => Value.err("Invalid operator", "Invalid Binary Operator", node.op.pos),
-    };
-
-    if (result == .runtime_error) {
-        if (result.runtime_error.pos == null) result.runtime_error.pos = og_node.getPos();
-    }
-
-    return result;
-}
-
-fn evalUnaryOp(self: Self, og_node: *Node) Value {
-    const node = og_node.unary_op;
-    var right = self.evalNode(node.right);
-    if (right == .runtime_error) {
-        if (right.runtime_error.pos == null) right.runtime_error.pos = node.right.getPos();
-        return right;
-    }
-
-    var result = switch (node.op.kind) {
-        .minus => Value.neg(right),
-        .plus => right, // ignore + just in case it does not in the Parser
-        .bang => Value.not(right),
-        else => Value.err("Invalid operator", "Invalid Unary Operator", node.op.pos),
-    };
-
-    if (result == .runtime_error) {
-        if (result.runtime_error.pos == null) result.runtime_error.pos = og_node.getPos();
-    }
-
-    return result;
-}
-
 fn safeIntCast(comptime TO: type, v: Value) !TO {
     // check if value is to big to fit in the type
     const max = std.math.maxInt(TO);
@@ -614,13 +486,146 @@ fn getTypeValFromSymbolValue(v: SymbolTable.SymbolValue) !TypeVal {
     };
 }
 
-fn evalVarDecl(self: Self, og_node: *Node) Value {
-    const node = og_node.var_decl;
-    var value: Value = if (node.value) |v| self.evalNode(v) else .none;
+// returns a runtime error if there is one
+fn checkRuntimeError(value: Value, orgin: *Node) ?Value {
     if (value == .runtime_error) {
-        if (value.runtime_error.pos == null) value.runtime_error.pos = og_node.getPos();
+        var err = value.runtime_error;
+        if (err.pos == null) err.pos = orgin.getPos();
         return value;
     }
+    return null;
+}
+
+pub fn init(symbols: *SymbolTable) Self {
+    return Self{ .symbols = symbols };
+}
+
+pub fn eval(self: Self, nodes: []const *Node) void {
+    for (nodes) |node| {
+        const result = self.evalNode(node);
+        switch (result) {
+            .runtime_error => |err| {
+                std.debug.print("Runtime error: {s}\n", .{err.msg});
+                if (err.extra) |extra| {
+                    std.debug.print("{s}\n", .{extra});
+                }
+                if (err.pos) |pos| {
+                    std.debug.print("{}\n", .{pos});
+                    std.debug.print("line: {d}, column: {d}\n", .{ pos.line, pos.column });
+                }
+                return; // if error in program return instantly
+            },
+            .integer => |i| std.debug.print("Result: {}\n", .{i}),
+            .float => |f| std.debug.print("Result: {d}\n", .{f}),
+            .boolean => |b| std.debug.print("Result: {}\n", .{b}),
+            .none => std.debug.print("Result: None\n", .{}),
+        }
+    }
+}
+
+pub fn evalNode(self: Self, node: *Node) Value {
+    return switch (node.*) {
+        .number => self.evalNumber(node.number),
+        .boolean => Value{ .boolean = node.boolean.n },
+        .block => self.evalBlock(node),
+        .bin_op => self.evalBinOp(node),
+        .unary_op => self.evalUnaryOp(node),
+        .var_decl => self.evalVarDecl(node),
+        .var_assign => self.evalVarAssign(node),
+        .identifier => self.evalIdentifier(node),
+        .ifstmt => self.evalIfStmt(node),
+    };
+}
+
+fn evalBlock(self: Self, og_node: *Node) Value {
+    var last_value: Value = .none;
+    for (og_node.block.nodes) |node| {
+        last_value = self.evalNode(node);
+        if (checkRuntimeError(last_value, node)) |err| return err;
+    }
+    return last_value;
+}
+
+fn evalNumber(_: Self, node: tree.Number) Value {
+    return switch (node) {
+        .integer => |i| Value{ .integer = i.n },
+        .float => |f| Value{ .float = f.n },
+    };
+}
+
+fn evalBinOp(self: Self, og_node: *Node) Value {
+    const node = og_node.bin_op;
+    const left = self.evalNode(node.left);
+    if (checkRuntimeError(left, node.left)) |err| return err;
+
+    // short circuiting operators
+    switch (node.op.kind) {
+        .ampersand_ampersand => {
+            const left_bool = left.convertToBool();
+            if (checkRuntimeError(left_bool, node.left)) |err| return err;
+            std.debug.assert(left_bool == .boolean);
+            if (left_bool.boolean == false) return Value{ .boolean = false };
+        },
+        .pipe_pipe => {
+            const left_bool = left.convertToBool();
+            if (checkRuntimeError(left_bool, node.left)) |err| return err;
+            std.debug.assert(left_bool == .boolean);
+            if (left_bool.boolean == true) return Value{ .boolean = true };
+        },
+        else => {},
+    }
+
+    const right = self.evalNode(node.right);
+    if (checkRuntimeError(right, node.right)) |err| return err;
+
+    const result = switch (node.op.kind) {
+        .plus => Value.add(left, right),
+        .minus => Value.sub(left, right),
+        .star => Value.mul(left, right),
+        .slash => Value.div(left, right),
+        .percent => Value.mod(left, right),
+        .ampersand => Value.bitAnd(left, right),
+        .pipe => Value.bitOr(left, right),
+        .caret => Value.bitXor(left, right),
+        .lt_lt => Value.lshift(left, right),
+        .gt_gt => Value.rshift(left, right),
+        .equal_equal => Value.equal(left, right),
+        .bang_equal => Value.notEqual(left, right),
+        .lt => Value.less(left, right),
+        .lt_equal => Value.lessEqual(left, right),
+        .gt => Value.greater(left, right),
+        .gt_equal => Value.greaterEqual(left, right),
+        .ampersand_ampersand => Value.logAnd(left, right),
+        .pipe_pipe => Value.logOr(left, right),
+        else => Value.err("Invalid operator", "Invalid Binary Operator", node.op.pos),
+    };
+
+    if (checkRuntimeError(result, og_node)) |err| return err;
+    return result;
+}
+
+fn evalUnaryOp(self: Self, og_node: *Node) Value {
+    const node = og_node.unary_op;
+    const right = self.evalNode(node.right);
+    if (checkRuntimeError(right, node.right)) |err| return err;
+
+    const result = switch (node.op.kind) {
+        .minus => Value.neg(right),
+        .plus => right, // ignore + just in case it does not in the Parser
+        .bang => Value.not(right),
+        else => Value.err("Invalid operator", "Invalid Unary Operator", node.op.pos),
+    };
+
+    if (checkRuntimeError(result, og_node)) |err| return err;
+
+    return result;
+}
+
+fn evalVarDecl(self: Self, og_node: *Node) Value {
+    const node = og_node.var_decl;
+    const value: Value = if (node.value) |v| self.evalNode(v) else .none;
+
+    if (checkRuntimeError(value, node.value orelse og_node)) |err| return err;
 
     std.debug.assert(node.type.value == .type);
 
@@ -639,11 +644,8 @@ fn evalVarDecl(self: Self, og_node: *Node) Value {
 
 fn evalVarAssign(self: Self, og_node: *Node) Value {
     const node = og_node.var_assign;
-    var value = self.evalNode(node.value);
-    if (value == .runtime_error) {
-        if (value.runtime_error.pos == null) value.runtime_error.pos = og_node.getPos();
-        return value;
-    }
+    const value = self.evalNode(node.value);
+    if (checkRuntimeError(value, node.value)) |err| return err;
 
     const old_symbol = self.symbols.get(node.identifier.lexeme) orelse {
         return Value.err("Symbol not found", "The symbol was not found", node.identifier.pos);
@@ -661,6 +663,29 @@ fn evalVarAssign(self: Self, og_node: *Node) Value {
         error.InvalidTypes => return Value.err("Invalid Types", "Can't change a symbol's type", og_node.getPos()),
     };
     return castToValue(symval);
+}
+
+fn evalIfStmt(self: Self, og_node: *Node) Value {
+    const node = og_node.ifstmt;
+    const condition = self.evalNode(node.condition);
+    if (checkRuntimeError(condition, node.condition)) |err| return err;
+
+    const boolean_value = condition.convertToBool();
+    if (checkRuntimeError(boolean_value, node.condition)) |err| return err;
+    std.debug.assert(boolean_value == .boolean); // should always be bool but just a safety check
+
+    if (boolean_value.boolean) {
+        const then = self.evalNode(node.then);
+        if (checkRuntimeError(then, node.then)) |err| return err;
+        return then;
+    } else {
+        if (node.else_node) |else_node| {
+            const else_value = self.evalNode(else_node);
+            if (checkRuntimeError(else_value, else_node)) |err| return err;
+            return else_value;
+        }
+    }
+    return .none; // if there is no else, return nothing
 }
 
 fn evalIdentifier(self: Self, og_node: *Node) Value {

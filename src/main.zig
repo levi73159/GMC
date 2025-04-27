@@ -80,7 +80,7 @@ pub fn main() !void {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    // var symbols = SymbolTable.init(gpa.allocator());
+    var symbols = SymbolTable.init(gpa.allocator());
     while (true) {
         std.debug.assert(arena.reset(.free_all) == true); // always returns true but we want to be sure
 
@@ -132,9 +132,7 @@ pub fn main() !void {
         };
         defer parser.allocator.free(nodes);
 
-        prettyPrint(nodes[0], 0);
-
-        // const interperter = Interpreter.init(&symbols);
-        // interperter.eval(nodes);
+        const interperter = Interpreter.init(&symbols);
+        interperter.eval(nodes);
     }
 }
