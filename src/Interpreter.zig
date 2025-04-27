@@ -538,9 +538,19 @@ pub fn evalNode(self: Self, node: *Node) Value {
 }
 
 fn evalBlock(self: Self, og_node: *Node) Value {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const block_allocator = arena.allocator();
+    var symbols = SymbolTable.init(block_allocator);
+    defer symbols.deinit();
+
+    symbols.parent = self.symbols;
+    var interpreter = Self{ .symbols = &symbols };
+
     var last_value: Value = .none;
     for (og_node.block.nodes) |node| {
-        last_value = self.evalNode(node);
+        last_value = interpreter.evalNode(node);
         if (checkRuntimeError(last_value, node)) |err| return err;
     }
     return last_value;

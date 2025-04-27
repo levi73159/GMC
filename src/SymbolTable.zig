@@ -26,6 +26,7 @@ pub const Symbol = struct {
     value: SymbolValue,
 };
 
+parent: ?*Self = null,
 table: std.StringHashMap(Symbol),
 allocator: std.mem.Allocator,
 
@@ -47,7 +48,7 @@ pub fn add(self: *Self, name: []const u8, symbol: Symbol) !void {
 }
 
 pub fn set(self: *Self, name: []const u8, value: SymbolValue) !void {
-    const symbol = self.table.getPtr(name) orelse return error.SymbolDoesNotExist;
+    const symbol = self.getPtr(name) orelse return error.SymbolDoesNotExist;
     if (symbol.is_const) return error.SymbolIsImmutable;
     // check if the type is the same as value
     const ty = std.meta.activeTag(symbol.value);
@@ -57,5 +58,13 @@ pub fn set(self: *Self, name: []const u8, value: SymbolValue) !void {
 }
 
 pub fn get(self: Self, name: []const u8) ?Symbol {
-    return self.table.get(name);
+    if (self.table.get(name)) |symbol| return symbol;
+    if (self.parent) |parent| return parent.get(name);
+    return null;
+}
+
+pub fn getPtr(self: *Self, name: []const u8) ?*Symbol {
+    if (self.table.getPtr(name)) |symbol| return symbol;
+    if (self.parent) |parent| return parent.getPtr(name);
+    return null;
 }
