@@ -43,7 +43,7 @@ pub fn previous(self: Self) ?Token {
 fn advance(self: *Self) ?Token {
     const token = self.current();
     self.prev = token;
-    self.index += 1;
+    self.index = std.math.clamp(self.index + 1, 0, self.tokens.len);
     return token;
 }
 
@@ -281,11 +281,22 @@ fn parseIf(self: *Self, expect_value: bool) ParseError!*tree.Node {
     // const u8 x = if (true) 10;; because were already parsing a statement
     if (expect_value) { // gurantee we have an else
         if (!self.match(.if_kw) and !self.match(.else_kw)) {
-            return self.badToken(error.ExpectedElse);
+            return error.ExpectedElse;
         }
     }
 
     if (self.consume(.else_kw)) |_| {
+        if (self.match(.if_kw)) {
+            const else_node = try self.parseIf(expect_value);
+            return self.allocNode(tree.Node{
+                .ifstmt = .{
+                    .start = start,
+                    .condition = condition,
+                    .then = then,
+                    .else_node = else_node,
+                },
+            });
+        }
         const else_node = try self.parseBlock(&parseExpression);
         return self.allocNode(tree.Node{
             .ifstmt = .{

@@ -41,8 +41,8 @@ pub fn format(self: Self, comptime _: []const u8, _: std.fmt.FormatOptions, writ
         };
 
         // make sure to ignore the spaces
-        const new_start = if (cutoff_start) if (std.mem.lastindexofscalar(u8, self.orginal_buffer[0..start], ' ')) |index| index + 1 else 0 else start;
-        const new_end = if (cutoff_end) if (std.mem.indexofscalar(u8, self.orginal_buffer[end..], ' ')) |index| index - 1 else self.orginal_buffer.len else end;
+        const new_start = if (cutoff_start) if (std.mem.lastIndexOfScalar(u8, self.orginal_buffer[0..start], ' ')) |index| index + 1 else 0 else start;
+        const new_end = if (cutoff_end) if (std.mem.indexOfScalar(u8, self.orginal_buffer[end..], ' ')) |index| index - 1 else self.orginal_buffer.len else end;
 
         const text = self.orginal_buffer[new_start..new_end];
 

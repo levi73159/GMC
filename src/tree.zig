@@ -105,11 +105,13 @@ pub const IfStmt = struct {
     pub fn isBlockless(self: IfStmt) bool {
         if (self.else_node) |else_node| {
             return switch (else_node.*) {
+                .ifstmt => |i| i.isBlockless(),
                 .block => false,
                 else => true,
             };
         }
         return switch (self.then.*) {
+            .ifstmt => |i| i.isBlockless(),
             .block => false,
             else => true,
         };
