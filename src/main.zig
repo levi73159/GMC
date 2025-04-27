@@ -70,17 +70,64 @@ pub fn prettyPrint(node: *const Node, indent: usize) void {
 }
 
 pub fn main() !void {
-    const stdin = std.io.getStdIn();
-    const stdout = std.io.getStdOut();
-
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
+
+    const allocator = gpa.allocator();
+
+    const args = try std.process.argsAlloc(allocator);
+    defer std.process.argsFree(allocator, args);
+
+    if (args.len < 2) {
+        std.debug.print("Usage: {s} <command>\n", .{args[0]});
+        std.process.exit(1);
+    }
+
+    if (std.mem.eql(u8, args[1], "repl")) {
+        repl(allocator) catch |err| {
+            std.debug.print("Error running repl: {s}\n", .{@errorName(err)});
+            std.debug.print("Exiting...\n", .{});
+            std.process.exit(255);
+        };
+    } else if (std.mem.eql(u8, args[1], "run")) {
+        if (args.len < 3) {
+            std.debug.print("Usage: {s} run <file>\n", .{args[0]});
+            std.process.exit(1);
+        }
+
+        const file = std.fs.cwd().openFile(args[2], .{}) catch |err| {
+            std.debug.print("Error opening file: {s}\n", .{@errorName(err)});
+            std.debug.print("Exiting...\n", .{});
+            std.process.exit(255);
+        };
+        defer file.close();
+
+        runFile(file) catch |err| {
+            std.debug.print("Error running file: {s}\n", .{@errorName(err)});
+            std.debug.print("Exiting...\n", .{});
+            std.process.exit(255);
+        };
+    } else if (std.mem.eql(u8, args[1], "help")) {
+        std.debug.print("Usage: {s} <command>\n", .{args[0]});
+        std.debug.print("Commands:\n", .{});
+        std.debug.print("  repl\n", .{});
+        std.debug.print("  run <file>\n", .{});
+        std.debug.print("  help\n", .{});
+    } else {
+        std.debug.print("Unknown command: {s}\n", .{args[1]});
+        std.process.exit(1);
+    }
+}
+
+fn repl(gpa: std.mem.Allocator) !void {
+    const stdin = std.io.getStdIn();
+    const stdout = std.io.getStdOut();
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var symbols = SymbolTable.init(gpa.allocator());
+    var symbols = SymbolTable.init(gpa);
     while (true) {
         std.debug.assert(arena.reset(.free_all) == true); // always returns true but we want to be sure
 
@@ -90,49 +137,67 @@ pub fn main() !void {
         };
         defer allocator.free(text);
 
-        var lexer = Lexer.init(text);
-        const tokens = lexer.makeTokens(allocator) catch |err| switch (err) {
-            error.OutOfMemory => {
-                std.log.err("OUT OF MEMORY!!!", .{});
-                std.process.exit(1);
-            },
-            else => {
-                std.debug.print("Lexer error: {s}\n", .{@errorName(err)});
-                std.debug.print("{}\n", .{lexer.prev});
-                std.debug.print("line: {d}, column: {d}\n", .{ lexer.prev.line, lexer.prev.column });
-                continue;
-            },
-        };
-        defer allocator.free(tokens);
-
-        var parser = Parser.init(tokens, allocator);
-        const nodes = parser.parse() catch |err| switch (err) {
-            error.OutOfMemory => {
-                std.log.err("OUT OF MEMORY!!!", .{});
-                std.process.exit(1);
-            },
-            else => {
-                const mprev_tok = parser.previous();
-                std.debug.print("Parser error: {s}\n", .{@errorName(err)});
-                if (mprev_tok) |prev_tok| {
-                    std.debug.print("{}\n", .{prev_tok.pos.?});
-                    std.debug.print("line: {d}, column: {d}\n", .{ prev_tok.pos.?.line, prev_tok.pos.?.column });
-                } else if (parser.prev) |prev| {
-                    std.debug.print("{}\n", .{prev.pos.?});
-                    std.debug.print("line: {d}, column: {d}\n", .{ prev.pos.?.line, prev.pos.?.column });
-                } else if (parser.tokens.len > 0) {
-                    const first = parser.tokens[0];
-                    std.debug.print("{}\n", .{first.pos.?});
-                    std.debug.print("line: {d}, column: {d}\n", .{ first.pos.?.line, first.pos.?.column });
-                } else {
-                    std.debug.print("Position cannot be determined\n", .{});
-                }
-                continue;
-            },
-        };
-        defer parser.allocator.free(nodes);
-
-        const interperter = Interpreter.init(&symbols);
-        interperter.eval(nodes);
+        run(text, allocator, &symbols);
     }
+}
+
+fn runFile(file: std.fs.File) !void {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const allocator = arena.allocator();
+
+    const contents = try file.readToEndAlloc(allocator, std.math.maxInt(usize));
+    defer allocator.free(contents);
+
+    var symbols = SymbolTable.init(allocator);
+    defer symbols.deinit();
+    run(contents, allocator, &symbols);
+}
+
+fn run(text: []const u8, allocator: std.mem.Allocator, symbols: *SymbolTable) void {
+    var lexer = Lexer.init(text);
+    const tokens = lexer.makeTokens(allocator) catch |err| switch (err) {
+        error.OutOfMemory => {
+            std.log.err("OUT OF MEMORY!!!", .{});
+            std.process.exit(255);
+        },
+        else => {
+            std.debug.print("Lexer error: {s}\n", .{@errorName(err)});
+            std.debug.print("{}\n", .{lexer.prev});
+            std.debug.print("line: {d}, column: {d}\n", .{ lexer.prev.line, lexer.prev.column });
+            return;
+        },
+    };
+    defer allocator.free(tokens);
+
+    var parser = Parser.init(tokens, allocator);
+    const nodes = parser.parse() catch |err| switch (err) {
+        error.OutOfMemory => {
+            std.log.err("OUT OF MEMORY!!!", .{});
+            std.process.exit(255);
+        },
+        else => {
+            const mprev_tok = parser.previous();
+            std.debug.print("Parser error: {s}\n", .{@errorName(err)});
+            if (mprev_tok) |prev_tok| {
+                std.debug.print("{}\n", .{prev_tok.pos.?});
+                std.debug.print("line: {d}, column: {d}\n", .{ prev_tok.pos.?.line, prev_tok.pos.?.column });
+            } else if (parser.prev) |prev| {
+                std.debug.print("{}\n", .{prev.pos.?});
+                std.debug.print("line: {d}, column: {d}\n", .{ prev.pos.?.line, prev.pos.?.column });
+            } else if (parser.tokens.len > 0) {
+                const first = parser.tokens[0];
+                std.debug.print("{}\n", .{first.pos.?});
+                std.debug.print("line: {d}, column: {d}\n", .{ first.pos.?.line, first.pos.?.column });
+            } else {
+                std.debug.print("Position cannot be determined\n", .{});
+            }
+            return;
+        },
+    };
+    defer parser.allocator.free(nodes);
+
+    const interperter = Interpreter.init(symbols);
+    interperter.eval(nodes);
 }

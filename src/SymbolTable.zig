@@ -33,7 +33,7 @@ pub fn init(allocator: std.mem.Allocator) Self {
     return Self{ .table = std.StringHashMap(Symbol).init(allocator), .allocator = allocator };
 }
 
-pub fn deinit(self: Self) void {
+pub fn deinit(self: *Self) void {
     var key_it = self.table.keyIterator();
     while (key_it.next()) |key| self.allocator.free(key.*);
     self.table.deinit();

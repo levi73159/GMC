@@ -14,13 +14,16 @@ column: u32 = 0,
 multi_line: bool = false,
 
 pub fn format(self: Self, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+    const is_multi_line_file = std.mem.containsAtLeastScalar(u8, self.orginal_buffer, 1, '\n');
     // PLEASE NOTE LINE CAN BE MULTIPLE LINES
     // first step: find the start of the line need
     const start_line = std.mem.lastIndexOfScalar(u8, self.orginal_buffer[0..self.start], '\n') orelse 0;
 
     // second step: find the end of the line need
     const end_line = std.mem.indexOfScalar(u8, self.orginal_buffer[self.end..], '\n') orelse self.orginal_buffer.len;
-    const line = self.orginal_buffer[start_line..end_line];
+
+    const actual_end = @min(end_line + self.end, self.orginal_buffer.len);
+    const line = self.orginal_buffer[start_line..actual_end];
 
     // third step: find how many words are in the line
     var words = std.mem.tokenizeScalar(u8, line, ' '); // this is the best way i found to do this because we don't wanna count every space
@@ -62,8 +65,9 @@ pub fn format(self: Self, comptime _: []const u8, _: std.fmt.FormatOptions, writ
             try writer.writeByteNTimes('^', width);
         }
     } else {
-        const width = self.end - self.start;
-        const offset = self.start - start_line;
+        const width: usize = self.end - self.start;
+        const offset_min: usize = if (is_multi_line_file) 1 else 0;
+        const offset: usize = self.start - start_line -| offset_min;
 
         try writer.print("{s}\n", .{line});
         if (!self.multi_line) {
