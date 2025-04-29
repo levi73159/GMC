@@ -166,6 +166,17 @@ fn parseStatement(self: *Self) ParseError!*tree.Node {
             return node;
         }
     }
+    if (self.match(.while_kw)) {
+        const node = try self.parseWhile();
+        if (node.whilestmt.isBlockless()) {
+            if (self.consume(.semicolon)) |_| {
+                return node;
+            }
+            return error.ExpectedSemicolon;
+        } else {
+            return node;
+        }
+    }
     if (self.consume(.break_kw)) |st| {
         if (self.consume(.semicolon)) |_| {
             return self.allocNode(tree.Node{ .breakstmt = .{ .start = st, .value = null } });
@@ -219,6 +230,7 @@ fn parseExpression(self: *Self) ParseError!*tree.Node {
     if (self.match(.left_curly_bracket)) return self.parseBlockOr(&parseExpression);
     if (self.match(.if_kw)) return self.parseIf(true);
     if (self.match(.for_kw)) return self.parseFor(true);
+    if (self.match(.while_kw)) return self.parseWhile();
 
     return self.parseLogicalOr();
 }
@@ -376,6 +388,24 @@ fn parseFor(self: *Self, expect_value: bool) ParseError!*tree.Node {
             .every_iteration = every_iteration,
             .body = body,
             .else_node = else_node,
+        },
+    });
+}
+
+fn parseWhile(self: *Self) ParseError!*tree.Node {
+    const start = self.consume(.while_kw) orelse return self.badToken(error.UnexpectedToken);
+
+    _ = self.consume(.left_paren) orelse return self.badToken(error.MissingParen);
+    const condition = try self.parseExpression();
+    _ = self.consume(.right_paren) orelse return self.badToken(error.MissingParen);
+
+    const body = try self.parseBlockOr(&parseStatement);
+
+    return self.allocNode(tree.Node{
+        .whilestmt = .{
+            .start = start,
+            .condition = condition,
+            .body = body,
         },
     });
 }

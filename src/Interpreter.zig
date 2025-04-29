@@ -584,6 +584,7 @@ pub fn evalNode(self: Self, node: *Node) RTResult {
         .identifier => self.evalIdentifier(node),
         .ifstmt => self.evalIfStmt(node),
         .forstmt => self.evalForStmt(node),
+        .whilestmt => self.evalWhileStmt(node),
         .breakstmt => self.evalBreak(node),
         .continuestmt => RTResult.sig(.@"continue"),
     };
@@ -808,6 +809,32 @@ fn evalForStmt(self: Self, og_node: *Node) RTResult {
         if (checkRuntimeErrorOrSignal(else_value, else_node)) |err| return err;
         return else_value;
     }
+
+    return RTResult.none();
+}
+
+fn evalWhileStmt(self: Self, og_node: *Node) RTResult {
+    const node = og_node.whilestmt;
+    while (true) {
+        const condition = self.evalNode(node.condition);
+        if (checkRuntimeErrorOrSignal(condition, node.condition)) |err| return err; // if we get a signal like continue or break ignore it in the condition
+        const val_cond = condition.value;
+
+        const boolean_value = val_cond.convertToBool();
+        if (checkRuntimeError(boolean_value, node.condition)) |err| return err;
+
+        if (!boolean_value.boolean) break; // break out of loop
+
+        const body = self.evalNode(node.body);
+        if (checkRuntimeErrorOrSignal(body, node.body)) |sigOrErr| switch (sigOrErr) {
+            .signal => |signal| switch (signal) {
+                .@"break" => |v| return RTResult.val(v),
+                .@"continue" => {},
+            },
+            else => return sigOrErr,
+        };
+    }
+
     return RTResult.none();
 }
 

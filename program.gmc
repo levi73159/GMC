@@ -1,7 +1,12 @@
+var u32 i;
 var u32 x;
-var u32 i = for (var u64 i = 0; i < 10; i++;) {
-    if (i == 3) { continue; }
-    if (i == 5) { break i; }
-    x++;
-} else 10;
+var u32 y = while (i < 10) {
+    x += 2;
+    i++;
+    if (i == 5) {
+        break x;
+    }
+};
+
+i;
 x;

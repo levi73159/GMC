@@ -54,6 +54,7 @@ pub const Kind = enum {
     if_kw,
     else_kw,
     for_kw,
+    while_kw,
     break_kw,
     continue_kw,
 
