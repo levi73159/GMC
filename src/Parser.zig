@@ -155,6 +155,31 @@ fn parseStatement(self: *Self) ParseError!*tree.Node {
             return node;
         }
     }
+    if (self.match(.for_kw)) {
+        const node = try self.parseFor(false);
+        if (node.forstmt.isBlockless()) {
+            if (self.consume(.semicolon)) |_| {
+                return node;
+            }
+            return error.ExpectedSemicolon;
+        } else {
+            return node;
+        }
+    }
+    if (self.consume(.break_kw)) |st| {
+        if (self.consume(.semicolon)) |_| {
+            return self.allocNode(tree.Node{ .breakstmt = .{ .start = st, .value = null } });
+        }
+
+        const value = try self.parseExprWithSemicolon(); // so we can do break i; and we have less code in this function
+        return self.allocNode(tree.Node{ .breakstmt = .{ .start = st, .value = value } });
+    }
+    if (self.consume(.continue_kw)) |st| {
+        if (self.consume(.semicolon)) |_| {
+            return self.allocNode(tree.Node{ .continuestmt = st });
+        }
+        return error.ExpectedSemicolon;
+    }
     return self.parseExprWithSemicolon();
 }
 
@@ -191,7 +216,9 @@ fn parseExpression(self: *Self) ParseError!*tree.Node {
         // zig fmt: on
     }
     // use match instead of consume because the parseIf checks for the if keyword
+    if (self.match(.left_curly_bracket)) return self.parseBlockOr(&parseExpression);
     if (self.match(.if_kw)) return self.parseIf(true);
+    if (self.match(.for_kw)) return self.parseFor(true);
 
     return self.parseLogicalOr();
 }
@@ -417,9 +444,6 @@ fn parsePrimary(self: *Self) ParseError!*tree.Node {
             return expr;
         }
         return error.MissingParen;
-    }
-    if (self.match(.left_curly_bracket)) {
-        return self.parseBlockOr(&parsePrimary);
     }
     if (self.consume(.number)) |tok| {
         std.debug.assert(tok.lexeme.len > 0);

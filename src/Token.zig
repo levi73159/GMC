@@ -53,6 +53,9 @@ pub const Kind = enum {
     false_kw,
     if_kw,
     else_kw,
+    for_kw,
+    break_kw,
+    continue_kw,
 
     pub fn getKeyword(lexeme: []const u8) ?Kind {
         var buf: [2555]u8 = undefined;

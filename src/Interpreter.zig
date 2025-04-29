@@ -12,6 +12,11 @@ const Error = struct {
     pos: ?Pos,
 };
 
+const Signal = union(enum) {
+    @"break": Value,
+    @"continue": void,
+};
+
 const Value = union(enum) {
     integer: i65,
     float: f64,
@@ -375,6 +380,35 @@ const Value = union(enum) {
     }
 };
 
+const RTResult = union(enum) {
+    value: Value,
+    signal: Signal,
+
+    pub fn none() RTResult {
+        return RTResult{
+            .value = Value{ .none = {} },
+        };
+    }
+
+    pub fn val(v: Value) RTResult {
+        return RTResult{
+            .value = v,
+        };
+    }
+
+    pub fn err(msg: []const u8, extra: []const u8, pos: ?Pos) RTResult {
+        return RTResult{
+            .value = Value.err(msg, extra, pos),
+        };
+    }
+
+    pub fn sig(s: Signal) RTResult {
+        return RTResult{
+            .signal = s,
+        };
+    }
+};
+
 const Self = @This();
 
 symbols: *SymbolTable,
@@ -486,12 +520,24 @@ fn getTypeValFromSymbolValue(v: SymbolTable.SymbolValue) !TypeVal {
     };
 }
 
-// returns a runtime error if there is one
-fn checkRuntimeError(value: Value, orgin: *Node) ?Value {
+fn checkRuntimeError(value: Value, orgin: *Node) ?RTResult {
     if (value == .runtime_error) {
         var err = value.runtime_error;
         if (err.pos == null) err.pos = orgin.getPos();
-        return value;
+        return RTResult{ .value = value };
+    }
+    return null;
+}
+
+// returns a runtime error if there is one
+fn checkRuntimeErrorOrSignal(result: RTResult, orgin: *Node) ?RTResult {
+    switch (result) {
+        .value => |v| if (v == .runtime_error) {
+            var err = v.runtime_error;
+            if (err.pos == null) err.pos = orgin.getPos();
+            return RTResult{ .value = v };
+        },
+        .signal => |s| return RTResult{ .signal = s },
     }
     return null;
 }
@@ -502,8 +548,11 @@ pub fn init(symbols: *SymbolTable) Self {
 
 pub fn eval(self: Self, nodes: []const *Node) void {
     for (nodes) |node| {
-        const result = self.evalNode(node);
-        switch (result) {
+        var result = self.evalNode(node);
+        if (result == .signal) {
+            result = RTResult.err("Signal error", "Can't handle signal at current scope", node.getPos());
+        }
+        switch (result.value) {
             .runtime_error => |err| {
                 std.debug.print("Runtime error: {s}\n", .{err.msg});
                 if (err.extra) |extra| {
@@ -523,10 +572,10 @@ pub fn eval(self: Self, nodes: []const *Node) void {
     }
 }
 
-pub fn evalNode(self: Self, node: *Node) Value {
+pub fn evalNode(self: Self, node: *Node) RTResult {
     return switch (node.*) {
         .number => self.evalNumber(node.number),
-        .boolean => Value{ .boolean = node.boolean.n },
+        .boolean => RTResult.val(Value{ .boolean = node.boolean.n }),
         .block => self.evalBlock(node),
         .bin_op => self.evalBinOp(node),
         .unary_op => self.evalUnaryOp(node),
@@ -534,10 +583,13 @@ pub fn evalNode(self: Self, node: *Node) Value {
         .var_assign => self.evalVarAssign(node),
         .identifier => self.evalIdentifier(node),
         .ifstmt => self.evalIfStmt(node),
+        .forstmt => self.evalForStmt(node),
+        .breakstmt => self.evalBreak(node),
+        .continuestmt => RTResult.sig(.@"continue"),
     };
 }
 
-fn evalBlock(self: Self, og_node: *Node) Value {
+fn evalBlock(self: Self, og_node: *Node) RTResult {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
 
@@ -548,160 +600,234 @@ fn evalBlock(self: Self, og_node: *Node) Value {
     symbols.parent = self.symbols;
     var interpreter = Self{ .symbols = &symbols };
 
-    var last_value: Value = .none;
+    var last_value: RTResult = RTResult.none();
     for (og_node.block.nodes) |node| {
         last_value = interpreter.evalNode(node);
-        if (checkRuntimeError(last_value, node)) |err| return err;
+        if (checkRuntimeErrorOrSignal(last_value, node)) |sigOrErr| return sigOrErr;
     }
     return last_value;
 }
 
-fn evalNumber(_: Self, node: tree.Number) Value {
-    return switch (node) {
+fn evalNumber(_: Self, node: tree.Number) RTResult {
+    return RTResult.val(switch (node) {
         .integer => |i| Value{ .integer = i.n },
         .float => |f| Value{ .float = f.n },
-    };
+    });
 }
 
-fn evalBinOp(self: Self, og_node: *Node) Value {
+fn evalBinOp(self: Self, og_node: *Node) RTResult {
     const node = og_node.bin_op;
     const left = self.evalNode(node.left);
-    if (checkRuntimeError(left, node.left)) |err| return err;
+    if (checkRuntimeErrorOrSignal(left, node.left)) |err| return err;
+    const val_left = left.value;
 
     // short circuiting operators
     switch (node.op.kind) {
         .ampersand_ampersand => {
-            const left_bool = left.convertToBool();
+            const left_bool = val_left.convertToBool();
             if (checkRuntimeError(left_bool, node.left)) |err| return err;
             std.debug.assert(left_bool == .boolean);
-            if (left_bool.boolean == false) return Value{ .boolean = false };
+            if (left_bool.boolean == false) return RTResult.val(Value{ .boolean = false });
         },
         .pipe_pipe => {
-            const left_bool = left.convertToBool();
+            const left_bool = val_left.convertToBool();
             if (checkRuntimeError(left_bool, node.left)) |err| return err;
             std.debug.assert(left_bool == .boolean);
-            if (left_bool.boolean == true) return Value{ .boolean = true };
+            if (left_bool.boolean == true) return RTResult.val(Value{ .boolean = true });
         },
         else => {},
     }
 
     const right = self.evalNode(node.right);
-    if (checkRuntimeError(right, node.right)) |err| return err;
+    if (checkRuntimeErrorOrSignal(right, node.right)) |err| return err;
+    const val_right = right.value;
 
     const result = switch (node.op.kind) {
-        .plus => Value.add(left, right),
-        .minus => Value.sub(left, right),
-        .star => Value.mul(left, right),
-        .slash => Value.div(left, right),
-        .percent => Value.mod(left, right),
-        .ampersand => Value.bitAnd(left, right),
-        .pipe => Value.bitOr(left, right),
-        .caret => Value.bitXor(left, right),
-        .lt_lt => Value.lshift(left, right),
-        .gt_gt => Value.rshift(left, right),
-        .equal_equal => Value.equal(left, right),
-        .bang_equal => Value.notEqual(left, right),
-        .lt => Value.less(left, right),
-        .lt_equal => Value.lessEqual(left, right),
-        .gt => Value.greater(left, right),
-        .gt_equal => Value.greaterEqual(left, right),
-        .ampersand_ampersand => Value.logAnd(left, right),
-        .pipe_pipe => Value.logOr(left, right),
+        .plus => Value.add(val_left, val_right),
+        .minus => Value.sub(val_left, val_right),
+        .star => Value.mul(val_left, val_right),
+        .slash => Value.div(val_left, val_right),
+        .percent => Value.mod(val_left, val_right),
+        .ampersand => Value.bitAnd(val_left, val_right),
+        .pipe => Value.bitOr(val_left, val_right),
+        .caret => Value.bitXor(val_left, val_right),
+        .lt_lt => Value.lshift(val_left, val_right),
+        .gt_gt => Value.rshift(val_left, val_right),
+        .equal_equal => Value.equal(val_left, val_right),
+        .bang_equal => Value.notEqual(val_left, val_right),
+        .lt => Value.less(val_left, val_right),
+        .lt_equal => Value.lessEqual(val_left, val_right),
+        .gt => Value.greater(val_left, val_right),
+        .gt_equal => Value.greaterEqual(val_left, val_right),
+        .ampersand_ampersand => Value.logAnd(val_left, val_right),
+        .pipe_pipe => Value.logOr(val_left, val_right),
         else => Value.err("Invalid operator", "Invalid Binary Operator", node.op.pos),
     };
 
     if (checkRuntimeError(result, og_node)) |err| return err;
-    return result;
+    return RTResult.val(result);
 }
 
-fn evalUnaryOp(self: Self, og_node: *Node) Value {
+fn evalUnaryOp(self: Self, og_node: *Node) RTResult {
     const node = og_node.unary_op;
-    const right = self.evalNode(node.right);
-    if (checkRuntimeError(right, node.right)) |err| return err;
+    const right: RTResult = self.evalNode(node.right);
+    if (checkRuntimeErrorOrSignal(right, node.right)) |err| return err;
+    const val_right: Value = right.value;
 
-    const result = switch (node.op.kind) {
-        .minus => Value.neg(right),
-        .plus => right, // ignore + just in case it does not in the Parser
-        .bang => Value.not(right),
+    const result: Value = switch (node.op.kind) {
+        .minus => Value.neg(val_right),
+        .plus => val_right, // ignore + just in case it does not in the Parser
+        .bang => Value.not(val_right),
         else => Value.err("Invalid operator", "Invalid Unary Operator", node.op.pos),
     };
 
     if (checkRuntimeError(result, og_node)) |err| return err;
 
-    return result;
+    return RTResult.val(result);
 }
 
-fn evalVarDecl(self: Self, og_node: *Node) Value {
+fn evalVarDecl(self: Self, og_node: *Node) RTResult {
     const node = og_node.var_decl;
-    const value: Value = if (node.value) |v| self.evalNode(v) else .none;
+    const value: Value = if (node.value) |v| blk: {
+        const result = self.evalNode(v);
+        if (checkRuntimeErrorOrSignal(result, v)) |err| return err;
+        break :blk result.value;
+    } else .none;
 
     if (checkRuntimeError(value, node.value orelse og_node)) |err| return err;
-
     std.debug.assert(node.type.value == .type);
 
     const symval = castToSymbolValue(value, node.type.value.type) catch {
-        return Value.err("Invalid Cast", "The value can't be converted to the type (could be due to the value is too big or small)", (node.value orelse og_node).getPos());
+        return RTResult.err("Invalid Cast", "The value can't be converted to the type (could be due to the value is too big or small)", (node.value orelse og_node).getPos());
     };
     const symbol = SymbolTable.Symbol{ .is_const = node.is_const.n, .value = symval };
 
     self.symbols.add(node.identifier.lexeme, symbol) catch |err| switch (err) {
         error.OutOfMemory => std.debug.panic("OUT OF MEMORY!!!", .{}),
-        error.SymbolAlreadyExists => return Value.err("Symbol already exists", "The symbol already exists", node.identifier.pos),
+        error.SymbolAlreadyExists => return RTResult.err("Symbol already exists", "The symbol already exists", node.identifier.pos),
     };
 
-    return value;
+    return RTResult.val(value);
 }
 
-fn evalVarAssign(self: Self, og_node: *Node) Value {
+fn evalVarAssign(self: Self, og_node: *Node) RTResult {
     const node = og_node.var_assign;
-    const value = self.evalNode(node.value);
-    if (checkRuntimeError(value, node.value)) |err| return err;
+    const rtresult = self.evalNode(node.value);
+    if (checkRuntimeErrorOrSignal(rtresult, node.value)) |err| return err;
+    const value = rtresult.value;
 
     const old_symbol = self.symbols.get(node.identifier.lexeme) orelse {
-        return Value.err("Symbol not found", "The symbol was not found", node.identifier.pos);
+        return RTResult.err("Symbol not found", "The symbol was not found", node.identifier.pos);
     };
     const ty = getTypeValFromSymbolValue(old_symbol.value) catch {
-        return Value.err("Invalid Cast", "Can't convert the value into the type", og_node.getPos());
+        return RTResult.err("Invalid Cast", "Can't convert the value into the type", og_node.getPos());
     };
     const symval = castToSymbolValue(value, ty) catch {
-        return Value.err("Invalid Cast", "The value can't be converted to the type (could be due to the value is too big or small)", node.value.getPos());
+        return RTResult.err("Invalid Cast", "The value can't be converted to the type (could be due to the value is too big or small)", node.value.getPos());
     };
 
     self.symbols.set(node.identifier.lexeme, symval) catch |err| switch (err) {
-        error.SymbolDoesNotExist => return Value.err("Symbol not found", "The symbol given was not found", node.identifier.pos),
-        error.SymbolIsImmutable => return Value.err("Symbol is immutable", "The symbol is immutable (const)", og_node.getPos()),
-        error.InvalidTypes => return Value.err("Invalid Types", "Can't change a symbol's type", og_node.getPos()),
+        error.SymbolDoesNotExist => return RTResult.err("Symbol not found", "The symbol given was not found", node.identifier.pos),
+        error.SymbolIsImmutable => return RTResult.err("Symbol is immutable", "The symbol is immutable (const)", og_node.getPos()),
+        error.InvalidTypes => return RTResult.err("Invalid Types", "Can't change a symbol's type", og_node.getPos()),
     };
-    return castToValue(symval);
+    return RTResult.val(castToValue(symval));
 }
 
-fn evalIfStmt(self: Self, og_node: *Node) Value {
+fn evalIfStmt(self: Self, og_node: *Node) RTResult {
     const node = og_node.ifstmt;
     const condition = self.evalNode(node.condition);
-    if (checkRuntimeError(condition, node.condition)) |err| return err;
+    if (checkRuntimeErrorOrSignal(condition, node.condition)) |err| return err;
+    const val_cond = condition.value;
 
-    const boolean_value = condition.convertToBool();
+    const boolean_value = val_cond.convertToBool();
     if (checkRuntimeError(boolean_value, node.condition)) |err| return err;
     std.debug.assert(boolean_value == .boolean); // should always be bool but just a safety check
 
     if (boolean_value.boolean) {
         const then = self.evalNode(node.then);
-        if (checkRuntimeError(then, node.then)) |err| return err;
+        if (checkRuntimeErrorOrSignal(then, node.then)) |err| return err;
         return then;
     } else {
         if (node.else_node) |else_node| {
             const else_value = self.evalNode(else_node);
-            if (checkRuntimeError(else_value, else_node)) |err| return err;
+            if (checkRuntimeErrorOrSignal(else_value, else_node)) |err| return err;
             return else_value;
         }
     }
-    return .none; // if there is no else, return nothing
+    return RTResult.none();
 }
 
-fn evalIdentifier(self: Self, og_node: *Node) Value {
+fn evalForStmt(self: Self, og_node: *Node) RTResult {
+    const node = og_node.forstmt;
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    var symbols = SymbolTable.init(arena.allocator());
+    symbols.parent = self.symbols;
+    defer symbols.deinit();
+
+    const outer_scope = Self{ .symbols = &symbols };
+    const start = outer_scope.evalNode(node.start_statement); // evaluate start node
+    if (checkRuntimeErrorOrSignal(start, node.start_statement)) |err| return err;
+
+    while (true) {
+        const condition = outer_scope.evalNode(node.condition);
+        if (checkRuntimeErrorOrSignal(condition, node.condition)) |err| return err; // if we get a signal like continue or break ignore it in the condition
+        const val_cond = condition.value;
+
+        const boolean_value = val_cond.convertToBool();
+        if (checkRuntimeError(boolean_value, node.condition)) |err| return err;
+
+        if (!boolean_value.boolean) break; // break out of loop
+
+        var inner_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+        defer inner_arena.deinit();
+
+        var inner_symbols = SymbolTable.init(inner_arena.allocator());
+        inner_symbols.parent = &symbols;
+        defer inner_symbols.deinit();
+
+        const inner_scope = Self{ .symbols = &inner_symbols };
+
+        const body = inner_scope.evalNode(node.body);
+        if (checkRuntimeErrorOrSignal(body, node.body)) |sigOrErr| switch (sigOrErr) {
+            .signal => |signal| switch (signal) {
+                .@"break" => |v| return RTResult.val(v),
+                .@"continue" => {},
+            },
+            else => return sigOrErr,
+        };
+
+        const every_iteration = outer_scope.evalNode(node.every_iteration);
+        if (checkRuntimeErrorOrSignal(every_iteration, node.every_iteration)) |err| return err;
+    }
+
+    if (node.else_node) |else_node| {
+        const else_value = self.evalNode(else_node);
+        if (checkRuntimeErrorOrSignal(else_value, else_node)) |err| return err;
+        return else_value;
+    }
+    return RTResult.none();
+}
+
+fn evalIdentifier(self: Self, og_node: *Node) RTResult {
     const token = og_node.identifier;
     const symbol = self.symbols.get(token.lexeme) orelse {
-        return Value.err("Symbol not found", "The symbol was not found", token.pos);
+        return RTResult.err("Symbol not found", "The symbol was not found", token.pos);
     };
-    return castToValue(symbol.value);
+    return RTResult.val(castToValue(symbol.value));
+}
+
+fn evalBreak(self: Self, og_node: *Node) RTResult {
+    const node = og_node.breakstmt;
+    if (node.value) |val_node| {
+        const result = self.evalNode(val_node);
+        if (checkRuntimeErrorOrSignal(result, og_node)) |err| return err;
+        const value = result.value;
+
+        return RTResult.sig(.{ .@"break" = value });
+    } else {
+        return RTResult.sig(.{ .@"break" = .none });
+    }
 }

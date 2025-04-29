@@ -18,6 +18,9 @@ pub const Node = union(enum) {
     var_decl: VariableDecl,
     var_assign: VariableAssign,
     ifstmt: IfStmt,
+    forstmt: ForStmt,
+    breakstmt: BreakStmt, // only need a token for debug pos
+    continuestmt: Token,
 
     pub fn getLeftPos(self: Node) ?DebugPos {
         return switch (self) {
@@ -33,6 +36,9 @@ pub const Node = union(enum) {
             .var_decl => |v| v.is_const.orginal.pos,
             .var_assign => |v| v.identifier.pos,
             .ifstmt => |i| i.start.pos,
+            .forstmt => |f| f.start.pos,
+            .breakstmt => |b| b.start.pos,
+            .continuestmt => |c| c.pos,
         };
     }
 
@@ -49,7 +55,10 @@ pub const Node = union(enum) {
             .unary_op => |u| u.right.getRightPos(),
             .var_decl => |v| if (v.value) |value| value.getRightPos() else v.identifier.pos,
             .var_assign => |v| v.value.getRightPos(),
-            .ifstmt => |i| i.then.getRightPos(), // TODO: Update this when add new nodes to if statement
+            .ifstmt => |i| if (i.else_node) |else_node| else_node.getRightPos() else i.then.getRightPos(),
+            .forstmt => |f| if (f.else_node) |else_node| else_node.getRightPos() else f.body.getRightPos(),
+            .breakstmt => |b| if (b.value) |value| value.getRightPos() else b.start.pos,
+            .continuestmt => |c| c.pos,
         };
     }
 
@@ -106,14 +115,47 @@ pub const IfStmt = struct {
         if (self.else_node) |else_node| {
             return switch (else_node.*) {
                 .ifstmt => |i| i.isBlockless(),
+                .forstmt => |f| f.isBlockless(),
                 .block => false,
                 else => true,
             };
         }
         return switch (self.then.*) {
             .ifstmt => |i| i.isBlockless(),
+            .forstmt => |f| f.isBlockless(),
             .block => false,
             else => true,
         };
     }
+};
+
+pub const ForStmt = struct {
+    start: Token,
+    start_statement: *Node,
+    condition: *Node,
+    every_iteration: *Node,
+    body: *Node,
+    else_node: ?*Node,
+
+    pub fn isBlockless(self: ForStmt) bool {
+        if (self.else_node) |else_node| {
+            return switch (else_node.*) {
+                .ifstmt => |i| i.isBlockless(),
+                .forstmt => |f| f.isBlockless(),
+                .block => false,
+                else => true,
+            };
+        }
+        return switch (self.body.*) {
+            .ifstmt => |i| i.isBlockless(),
+            .forstmt => |f| f.isBlockless(),
+            .block => false,
+            else => true,
+        };
+    }
+};
+
+pub const BreakStmt = struct {
+    start: Token,
+    value: ?*Node,
 };
