@@ -43,6 +43,8 @@ pub const Kind = enum {
 
     // literal tokens
     number,
+    string,
+    character,
     identifier,
     type,
 

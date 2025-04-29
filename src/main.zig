@@ -137,6 +137,10 @@ fn repl(gpa: std.mem.Allocator) !void {
         };
         defer allocator.free(text);
 
+        if (std.mem.eql(u8, text, "exit")) {
+            break;
+        }
+
         run(text, allocator, &symbols);
     }
 }

@@ -82,6 +82,8 @@ pub fn next(self: *Self) !?Token {
         '!' => self.initTokenOrOther(.bang, .bang_equal, "!", "!=", '='),
         '0'...'9' => try self.makeNumber(),
         'a'...'z', 'A'...'Z', '_' => try self.makeIdentifier(),
+        '\'' => try self.makeString(true),
+        '"' => try self.makeString(false),
         else => return error.InvalidCharacter,
     };
 }
@@ -288,6 +290,41 @@ fn makeIdentifier(self: *Self) !Token {
         _ = tok.setPos(debug_pos);
         return tok;
     }
+}
+
+fn makeString(self: *Self, is_char: bool) !Token {
+    const start = self.index - 1;
+    const start_column = self.column - 1;
+    const start_line = self.line;
+
+    const end_char: u8 = if (is_char) '\'' else '"';
+    while (self.current() != end_char) {
+        if (self.current() == null) return error.UnexpectedEOF;
+        const c = self.advance();
+        if (c == '\\') _ = self.advance();
+    }
+    const c = self.advance();
+    const end = self.index;
+
+    if (c == null) return error.UnexpectedEOF;
+    if (c != end_char) return error.ExpectedEndOfString;
+
+    const lexeme = self.buffer[start..end];
+    const prev = DebugPos{
+        .start = start,
+        .end = end,
+        .orginal_buffer = self.buffer,
+        .line = self.line,
+        .column = start_column,
+        .multi_line = self.line != start_line,
+    };
+    self.prev = prev;
+
+    if (prev.multi_line) return error.MultiLineStringNotSupported;
+
+    var tok = if (is_char) Token.init(.character, lexeme) else Token.init(.string, lexeme);
+    _ = tok.setPos(prev);
+    return tok;
 }
 
 fn isType(lexeme: []const u8) ?Token.Value {

@@ -6,21 +6,54 @@ const Pos = @import("DebugPos.zig");
 const SymbolTable = @import("SymbolTable.zig");
 const TypeVal = @import("Token.zig").TypeValue;
 
+const Signal = union(enum) {
+    @"break": Value,
+    @"continue": void,
+};
+
 const Error = struct {
     msg: []const u8,
     extra: ?[]const u8,
     pos: ?Pos,
 };
 
-const Signal = union(enum) {
-    @"break": Value,
-    @"continue": void,
+const String = struct {
+    value: []const u8,
+    allocated: union(enum) {
+        heap: struct {
+            allocator: std.mem.Allocator,
+            refs: usize,
+        },
+        stack: void,
+    },
+
+    pub fn deinit(self: String) void {
+        switch (self.allocated) {
+            .heap => |h| {
+                h.refs -= 1;
+                if (h.refs == 0) h.allocator.free(self.value);
+            },
+            .stack => {},
+        }
+    }
+
+    pub fn clone(self: String) String {
+        return String{
+            .value = self.value,
+            .allocated = switch (self.allocated) {
+                .heap => |h| .{ .heap = .{ .allocator = h.allocator, .refs = h.refs + 1 } },
+                .stack => .stack,
+            },
+        };
+    }
 };
 
 const Value = union(enum) {
     integer: i65,
     float: f64,
     boolean: bool,
+    string: String,
+    char: u8,
     none,
     runtime_error: Error,
 
@@ -29,9 +62,18 @@ const Value = union(enum) {
         return switch (self) {
             .integer => |i| Value{ .boolean = i != 0 },
             .float => |f| Value{ .boolean = f != 0.0 },
+            .string => |s| Value{ .boolean = s.value.len > 0 },
+            .char => |c| Value{ .boolean = c != 0 },
             .none => Value{ .boolean = false }, // none == false
             .boolean, .runtime_error => self,
         };
+    }
+
+    pub fn str(node: tree.String) Value {
+        return Value{ .string = String{
+            .value = node.n,
+            .allocated = if (node.allocated == .heap) .{ .heap = .{ .allocator = node.allocated.heap, .refs = 1 } } else .stack,
+        } };
     }
 
     pub fn err(msg: []const u8, extra: []const u8, pos: ?Pos) Value {
@@ -567,6 +609,8 @@ pub fn eval(self: Self, nodes: []const *Node) void {
             .integer => |i| std.debug.print("Result: {}\n", .{i}),
             .float => |f| std.debug.print("Result: {d}\n", .{f}),
             .boolean => |b| std.debug.print("Result: {}\n", .{b}),
+            .string => |s| std.debug.print("Result: {s}\n", .{s.value}),
+            .char => |c| std.debug.print("Result: {c}\n", .{c}),
             .none => std.debug.print("Result: None\n", .{}),
         }
     }
@@ -575,6 +619,8 @@ pub fn eval(self: Self, nodes: []const *Node) void {
 pub fn evalNode(self: Self, node: *Node) RTResult {
     return switch (node.*) {
         .number => self.evalNumber(node.number),
+        .string => self.evalString(node),
+        .char => self.evalCharacter(node),
         .boolean => RTResult.val(Value{ .boolean = node.boolean.n }),
         .block => self.evalBlock(node),
         .bin_op => self.evalBinOp(node),
@@ -857,4 +903,16 @@ fn evalBreak(self: Self, og_node: *Node) RTResult {
     } else {
         return RTResult.sig(.{ .@"break" = .none });
     }
+}
+
+fn evalString(self: Self, og_node: *Node) RTResult {
+    _ = self;
+    const node = og_node.string;
+    return RTResult.val(Value.str(node));
+}
+
+fn evalCharacter(self: Self, og_node: *Node) RTResult {
+    _ = self;
+    const node = og_node.char;
+    return RTResult.val(.{ .char = node.n });
 }

@@ -1,3 +1,4 @@
+const std = @import("std");
 const Token = @import("Token.zig");
 const DebugPos = @import("DebugPos.zig");
 
@@ -5,11 +6,15 @@ pub fn BaseType(comptime T: type) type {
     return struct {
         n: T,
         orginal: Token,
+
+        pub fn deinit(_: @This()) void {}
     };
 }
 
 pub const Node = union(enum) {
     number: Number,
+    string: String,
+    char: BaseType(u8),
     boolean: BaseType(bool),
     block: Block,
     identifier: Token,
@@ -29,6 +34,8 @@ pub const Node = union(enum) {
                 .integer => |i| i.orginal.pos,
                 .float => |f| f.orginal.pos,
             },
+            .string => |s| s.orginal.pos,
+            .char => |c| c.orginal.pos,
             .boolean => |b| b.orginal.pos,
             .block => |b| b.start.pos,
             .identifier => |i| i.pos,
@@ -50,6 +57,8 @@ pub const Node = union(enum) {
                 .integer => |i| i.orginal.pos,
                 .float => |f| f.orginal.pos,
             },
+            .string => |s| s.orginal.pos,
+            .char => |c| c.orginal.pos,
             .boolean => |b| b.orginal.pos,
             .block => |b| b.end.pos,
             .identifier => |i| i.pos,
@@ -70,6 +79,24 @@ pub const Node = union(enum) {
         const right = self.getRightPos() orelse return null;
         return left.combine(right);
     }
+
+    pub fn deinit(self: Node) void {
+        switch (self) {
+            .number => |n| n.deinit(),
+            .string => |s| s.deinit(),
+            .char => |c| c.deinit(),
+            .block => |b| b.deinit(),
+            .bin_op => |b| b.deinit(),
+            .unary_op => |u| u.deinit(),
+            .var_decl => |v| v.deinit(),
+            .var_assign => |v| v.deinit(),
+            .ifstmt => |i| i.deinit(),
+            .forstmt => |f| f.deinit(),
+            .breakstmt => |b| b.deinit(),
+            .continuestmt => {},
+            .whilestmt => |w| w.deinit(),
+        }
+    }
 };
 
 // node infos are stored in structs and in the order they come in
@@ -77,23 +104,54 @@ pub const Node = union(enum) {
 pub const Number = union(enum) {
     integer: BaseType(i65),
     float: BaseType(f64),
+
+    pub fn deinit(_: Number) void {}
+};
+
+pub const String = struct {
+    n: []const u8,
+    orginal: Token,
+    allocated: union(enum) {
+        heap: std.mem.Allocator,
+        stack: void,
+    },
+
+    pub fn deinit(self: String) void {
+        switch (self.allocated) {
+            .heap => |h| h.free(self.n),
+            .stack => {},
+        }
+    }
 };
 
 pub const Block = struct {
     start: Token,
     nodes: []const *Node,
     end: Token,
+
+    pub fn deinit(self: Block) void {
+        for (self.nodes) |node| node.deinit();
+    }
 };
 
 pub const BinOp = struct {
     left: *Node,
     op: Token,
     right: *Node,
+
+    pub fn deinit(self: BinOp) void {
+        self.left.deinit();
+        self.right.deinit();
+    }
 };
 
 pub const UnaryOp = struct {
     op: Token,
     right: *Node,
+
+    pub fn deinit(self: UnaryOp) void {
+        self.right.deinit();
+    }
 };
 
 pub const VariableDecl = struct {
@@ -101,11 +159,19 @@ pub const VariableDecl = struct {
     type: Token,
     identifier: Token,
     value: ?*Node,
+
+    pub fn deinit(self: VariableDecl) void {
+        if (self.value) |value| value.deinit();
+    }
 };
 
 pub const VariableAssign = struct {
     identifier: Token,
     value: *Node,
+
+    pub fn deinit(self: VariableAssign) void {
+        self.value.deinit();
+    }
 };
 
 fn blocklessCheck(node: Node) bool {
@@ -130,6 +196,12 @@ pub const IfStmt = struct {
         }
         return blocklessCheck(self.then.*);
     }
+
+    pub fn deinit(self: IfStmt) void {
+        self.condition.deinit();
+        self.then.deinit();
+        if (self.else_node) |else_node| else_node.deinit();
+    }
 };
 
 pub const ForStmt = struct {
@@ -146,11 +218,23 @@ pub const ForStmt = struct {
         }
         return blocklessCheck(self.body.*);
     }
+
+    pub fn deinit(self: ForStmt) void {
+        self.start_statement.deinit();
+        self.condition.deinit();
+        self.every_iteration.deinit();
+        self.body.deinit();
+        if (self.else_node) |else_node| else_node.deinit();
+    }
 };
 
 pub const BreakStmt = struct {
     start: Token,
     value: ?*Node,
+
+    pub fn deinit(self: BreakStmt) void {
+        if (self.value) |value| value.deinit();
+    }
 };
 
 pub const WhileStmt = struct {
@@ -160,5 +244,10 @@ pub const WhileStmt = struct {
 
     pub fn isBlockless(self: WhileStmt) bool {
         return blocklessCheck(self.body.*);
+    }
+
+    pub fn deinit(self: WhileStmt) void {
+        self.condition.deinit();
+        self.body.deinit();
     }
 };

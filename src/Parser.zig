@@ -26,6 +26,8 @@ const ParseError = error{
     MissingCurlyBracket,
     NumberOverflow,
     InvalidNumber,
+    InvalidCharacter,
+    MissingEndOfString,
 };
 
 pub fn init(tokens: []const Token, allocator: std.mem.Allocator) Self {
@@ -489,6 +491,12 @@ fn parsePrimary(self: *Self) ParseError!*tree.Node {
         const float = std.fmt.parseFloat(f64, tok.lexeme) catch return error.InvalidNumber;
         return self.allocNode(tree.Node{ .number = .{ .float = .{ .n = float, .orginal = tok } } });
     }
+    if (self.consume(.string)) |tok| {
+        return self.parseString(tok, false);
+    }
+    if (self.consume(.character)) |tok| {
+        return self.parseString(tok, true);
+    }
     if (self.consume(.identifier)) |tok| {
         return self.allocNode(tree.Node{ .identifier = tok });
     }
@@ -501,4 +509,84 @@ fn parsePrimary(self: *Self) ParseError!*tree.Node {
     }
 
     return error.ExpectedStatement;
+}
+
+fn parseString(self: *Self, tok: Token, is_char: bool) ParseError!*tree.Node {
+    std.debug.assert(tok.kind == .string or tok.kind == .character);
+
+    const str_raw = tok.lexeme[1 .. tok.lexeme.len - 1]; // remove quotes
+
+    // replace escape characters
+    if (str_raw.len < 0) {
+        if (is_char) return error.InvalidCharacter;
+        return self.allocNode(.{
+            .string = .{
+                .n = str_raw,
+                .orginal = tok,
+                .allocated = .stack,
+            },
+        });
+    }
+
+    // check if we have any escape characters
+    var i: usize = 0;
+    while (i < str_raw.len) : (i += 1) {
+        if (str_raw[i] == '\\') {
+            break;
+        }
+    } else {
+        if (is_char) {
+            if (str_raw.len != 1) return error.InvalidCharacter;
+            return self.allocNode(.{
+                .char = .{ .n = str_raw[0], .orginal = tok },
+            });
+        } else {
+            return self.allocNode(.{
+                .string = .{
+                    .n = str_raw,
+                    .orginal = tok,
+                    .allocated = .stack,
+                },
+            });
+        }
+    }
+
+    var buf = self.allocator.alloc(u8, str_raw.len) catch return error.OutOfMemory;
+    errdefer self.allocator.free(buf);
+
+    i = 0;
+    var j: usize = 0;
+    while (i < str_raw.len) : ({
+        i += 1;
+        j += 1;
+    }) {
+        if (str_raw[i] == '\\') {
+            i += 1;
+            if (i >= str_raw.len) return error.MissingEndOfString;
+            var char = str_raw[i];
+            if (char == 'n') char = '\n';
+            if (char == 'r') char = '\r';
+            if (char == 't') char = '\t';
+
+            buf[j] = char;
+        } else {
+            buf[j] = str_raw[i];
+        }
+    }
+
+    // realloc buffer to fit string aka size = j
+    buf = try self.allocator.realloc(buf, j);
+
+    if (is_char) {
+        if (buf.len != 1) return error.InvalidCharacter;
+        return self.allocNode(tree.Node{ .char = .{ .n = buf[0], .orginal = tok } });
+    }
+
+    return self.allocNode(.{
+        .string = .{
+            .n = buf,
+            .orginal = tok,
+            .allocated = .{ .heap = self.allocator },
+        },
+    });
 }
