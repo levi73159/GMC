@@ -708,9 +708,8 @@ pub fn castToSymbolValue(allocator: std.mem.Allocator, v: Value, ty: TypeVal) !S
         .u32 => SymVal{ .u32 = try safeIntCast(u32, v) },
         .u64 => SymVal{ .u64 = try safeIntCast(u64, v) },
 
-        .f32 => SymVal{ .f32 = try safeFloatCast(f32, v) },
-        .f64 => SymVal{ .f64 = try safeFloatCast(f64, v) },
-
+        .int => SymVal{ .i32 = try safeIntCast(i32, v) },
+        .float => SymVal{ .float = try safeFloatCast(f64, v) },
         .bool => SymVal{ .bool = try safeBoolCast(v) },
         .str => SymVal{ .string = try safeStrCast(allocator, v) },
         .char => SymVal{ .char = try safeIntCast(u8, v) },
@@ -729,9 +728,7 @@ pub fn castToValue(v: SymbolTable.SymbolValue) Value {
         .u16 => |i| Value{ .integer = i },
         .u32 => |i| Value{ .integer = i },
         .u64 => |i| Value{ .integer = i },
-
-        .f32 => |f| Value{ .float = f },
-        .f64 => |f| Value{ .float = f },
+        .float => |f| Value{ .float = f },
 
         .bool => |b| Value{ .boolean = b },
         .string => |s| Value{ .string = s.clone() },
@@ -750,9 +747,7 @@ pub fn getTypeValFromSymbolValue(v: SymbolTable.SymbolValue) !TypeVal {
         .u16 => TypeVal.u16,
         .u32 => TypeVal.u32,
         .u64 => TypeVal.u64,
-
-        .f32 => TypeVal.f32,
-        .f64 => TypeVal.f64,
+        .float => TypeVal.float,
 
         .bool => TypeVal.bool,
         .string => TypeVal.str,

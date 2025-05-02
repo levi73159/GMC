@@ -1,6 +1,6 @@
 const str my_str = "Hello, World!";
-const i32 my_int = 42;
-const f32 my_float = 3.14;
+const int my_int = 42;
+const float my_float = 3.14;
 
 const str my_str_with_newline = my_str + "\n";
 const str with_escape = "Hello, \"World\"!";
