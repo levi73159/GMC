@@ -1,2 +1,12 @@
-var str x = "hello";
-x;
+const str my_str = "Hello, World!";
+const i32 my_int = 42;
+const f32 my_float = 3.14;
+
+const str my_str_with_newline = my_str + "\n";
+const str with_escape = "Hello, \"World\"!";
+
+my_str;
+my_int;
+my_float;
+my_str_with_newline;
+with_escape;

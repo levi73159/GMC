@@ -144,7 +144,7 @@ fn repl(gpa: std.mem.Allocator) !void {
             break;
         }
 
-        run(text, allocator, gpa, &symbols);
+        run(text, allocator, gpa, &symbols, true);
     }
 }
 
@@ -157,12 +157,12 @@ fn runFile(dbg: std.mem.Allocator, file: std.fs.File) !void {
     const contents = try file.readToEndAlloc(allocator, std.math.maxInt(usize));
     defer allocator.free(contents);
 
-    var symbols = SymbolTable.init(allocator);
+    var symbols = SymbolTable.init(dbg);
     defer symbols.deinit();
-    run(contents, allocator, dbg, &symbols);
+    run(contents, allocator, dbg, &symbols, true);
 }
 
-fn run(text: []const u8, allocator: std.mem.Allocator, dbg_allocator: std.mem.Allocator, symbols: *SymbolTable) void {
+fn run(text: []const u8, allocator: std.mem.Allocator, dbg_allocator: std.mem.Allocator, symbols: *SymbolTable, force_heap: bool) void {
     var lexer = Lexer.init(text);
     const tokens = lexer.makeTokens(allocator) catch |err| switch (err) {
         error.OutOfMemory => {
@@ -206,6 +206,6 @@ fn run(text: []const u8, allocator: std.mem.Allocator, dbg_allocator: std.mem.Al
     defer parser.deinit(nodes);
 
     var interperter = Interpreter.init(dbg_allocator, symbols);
-    interperter.heap_str_only = true;
+    interperter.heap_str_only = force_heap;
     interperter.eval(nodes);
 }

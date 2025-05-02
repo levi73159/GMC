@@ -114,13 +114,18 @@ pub const String = struct {
     n: []const u8,
     orginal: Token,
     allocated: union(enum) {
-        heap: std.mem.Allocator,
+        heap: struct { allocator: std.mem.Allocator, valid: *bool },
         stack: void,
     },
 
     pub fn deinit(self: String) void {
         switch (self.allocated) {
-            .heap => |h| h.free(self.n),
+            .heap => |h| {
+                if (h.valid.*) {
+                    h.allocator.free(self.n);
+                    h.valid.* = false;
+                }
+            },
             .stack => {},
         }
     }

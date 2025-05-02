@@ -591,13 +591,15 @@ fn parseString(self: *Self, tok: Token, is_char: bool) ParseError!*tree.Node {
         defer self.allocator.free(buf); // no longer need the buffer
         return self.allocNode(tree.Node{ .char = .{ .n = buf[0], .orginal = tok } });
     } else {
-        buf = try self.allocator.realloc(buf, j);
+        const new_buf = try self.allocator.realloc(buf, j);
+        const valid = self.node_allocator.create(bool) catch return error.OutOfMemory;
+        valid.* = true;
 
         return self.allocNode(.{
             .string = .{
-                .n = buf,
+                .n = new_buf,
                 .orginal = tok,
-                .allocated = .{ .heap = self.node_allocator },
+                .allocated = .{ .heap = .{ .allocator = self.allocator, .valid = valid } },
             },
         });
     }

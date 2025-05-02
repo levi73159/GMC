@@ -37,11 +37,9 @@ pub const String = struct {
     }
 
     pub fn deinit(self: String) void {
-        std.debug.print("deinit string: {s}\n", .{self.value});
         switch (self.mem_type) {
             .heap => |h| {
                 h.refs -= 1;
-                std.debug.print("refs: {d}\n", .{h.refs});
                 if (h.refs == 0) {
                     self.allocator.free(self.value);
                     self.allocator.destroy(h);
@@ -52,7 +50,6 @@ pub const String = struct {
     }
 
     pub fn clone(self: String) String {
-        std.debug.print("clone string: {s}\n", .{self.value});
         return String{ .value = self.value, .mem_type = switch (self.mem_type) {
             .heap => blk: {
                 const inner = self.mem_type.heap;
@@ -160,14 +157,17 @@ pub const Value = union(enum) {
     }
 
     pub fn str(node: tree.String, force_heap: bool, allocator: std.mem.Allocator) !Value {
+        defer node.deinit(); // deinit the string
         if (force_heap) {
             const inner = try allocator.create(String.Inner);
             inner.* = String.Inner{ .refs = 1 };
-            return Value{ .string = String{
-                .value = try allocator.dupe(u8, node.n),
-                .mem_type = .{ .heap = inner },
-                .allocator = allocator,
-            } };
+            return Value{
+                .string = String{
+                    .value = try allocator.dupe(u8, node.n),
+                    .mem_type = .{ .heap = inner },
+                    .allocator = allocator,
+                },
+            };
         }
 
         if (node.allocated == .stack) {
@@ -178,11 +178,11 @@ pub const Value = union(enum) {
             } };
         }
 
-        const inner = try node.allocated.heap.create(String.Inner);
+        const inner = try allocator.create(String.Inner);
         inner.* = String.Inner{ .refs = 1 };
 
         return Value{ .string = String{
-            .value = node.n,
+            .value = try allocator.dupe(u8, node.n),
             .mem_type = .{ .heap = inner },
             .allocator = allocator,
         } };
