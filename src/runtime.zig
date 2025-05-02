@@ -1,6 +1,7 @@
 const std = @import("std");
-const tree = @import("tree.zig");
+
 const Pos = @import("DebugPos.zig");
+const tree = @import("tree.zig");
 
 pub const Signal = union(enum) {
     @"break": Value,
@@ -15,24 +16,24 @@ pub const Error = struct {
 
 pub const String = struct {
     const Inner = struct {
-        allocator: std.mem.Allocator,
         refs: u32,
     };
     value: []const u8,
-    allocated: union(enum) {
+    mem_type: union(enum) {
         heap: *Inner,
         stack: void,
     },
+    allocator: std.mem.Allocator,
 
     pub fn deinit(self: String) void {
         std.debug.print("deinit string: {s}\n", .{self.value});
-        switch (self.allocated) {
+        switch (self.mem_type) {
             .heap => |h| {
                 h.refs -= 1;
                 std.debug.print("refs: {d}\n", .{h.refs});
                 if (h.refs == 0) {
-                    h.allocator.free(self.value);
-                    h.allocator.destroy(h);
+                    self.allocator.free(self.value);
+                    self.allocator.destroy(h);
                 }
             },
             .stack => {},
@@ -41,16 +42,87 @@ pub const String = struct {
 
     pub fn clone(self: String) String {
         std.debug.print("clone string: {s}\n", .{self.value});
-        return String{
-            .value = self.value,
-            .allocated = switch (self.allocated) {
-                .heap => blk: {
-                    const inner = self.allocated.heap;
-                    inner.refs += 1;
-                    break :blk .{ .heap = inner };
-                },
-                .stack => .stack,
+        return String{ .value = self.value, .mem_type = switch (self.mem_type) {
+            .heap => blk: {
+                const inner = self.mem_type.heap;
+                inner.refs += 1;
+                break :blk .{ .heap = inner };
             },
+            .stack => .stack,
+        }, .allocator = self.allocator };
+    }
+
+    pub fn concat(self: String, other: String) !String {
+        const new_value = try std.mem.concat(self.allocator, u8, &[_][]const u8{ self.value, other.value });
+        const inner = try self.allocator.create(String.Inner);
+        inner.* = String.Inner{ .refs = 1 };
+
+        self.deinit();
+        other.deinit();
+        return String{
+            .value = new_value,
+            .mem_type = .{ .heap = inner },
+            .allocator = self.allocator,
+        };
+    }
+
+    pub fn concatRaw(self: String, other: []const u8) !String {
+        const new_value = try std.mem.concat(self.allocator, u8, &[_][]const u8{ self.value, other });
+        const inner = try self.allocator.create(String.Inner);
+        inner.* = String.Inner{ .refs = 1 };
+
+        self.deinit();
+        return String{
+            .value = new_value,
+            .mem_type = .{ .heap = inner },
+            .allocator = self.allocator,
+        };
+    }
+
+    /// returns error.NegativeRepeat if times < 0
+    pub fn repeat(self: String, times: i65) !String {
+        if (times < 0) return error.NegativeRepeat;
+        if (times == 0) return String{ .value = "", .mem_type = .stack, .allocator = self.allocator };
+
+        const new_len = self.value.len * @as(usize, @intCast(times));
+        const new_value = try self.allocator.alloc(u8, new_len);
+        errdefer self.allocator.free(new_value);
+
+        var i: usize = 0;
+        while (i < new_len) : (i += 1) {
+            new_value[i] = self.value[i % self.value.len];
+        }
+
+        const inner = try self.allocator.create(String.Inner);
+        inner.* = String.Inner{ .refs = 1 };
+
+        self.deinit();
+        return String{
+            .value = new_value,
+            .mem_type = .{ .heap = inner },
+            .allocator = self.allocator,
+        };
+    }
+
+    /// returns error.NegativeRepeat if times < 0
+    pub fn initRepeat(allocator: std.mem.Allocator, char: u8, times: i65) !String {
+        if (times < 0) return error.NegativeRepeat;
+        if (times == 0) return String{ .value = "", .mem_type = .stack, .allocator = allocator };
+
+        const new_len = @as(usize, @intCast(times));
+        const copy_value = try allocator.alloc(u8, new_len);
+        var i: usize = 0;
+        while (i < new_len) : (i += 1) {
+            copy_value[i] = char;
+        }
+
+        const inner = try allocator.create(String.Inner);
+        inner.* = String.Inner{ .refs = 1 };
+
+        return String{
+            .value = copy_value,
+            .mem_type = .{ .heap = inner },
+            .allocator = allocator,
         };
     }
 };
@@ -79,18 +151,30 @@ pub const Value = union(enum) {
     pub fn str(node: tree.String, force_heap: bool, allocator: std.mem.Allocator) !Value {
         if (force_heap) {
             const inner = try allocator.create(String.Inner);
-            inner.* = String.Inner{ .allocator = allocator, .refs = 1 };
-            return Value{ .string = String{ .value = try allocator.dupe(u8, node.n), .allocated = .{ .heap = inner } } };
+            inner.* = String.Inner{ .refs = 1 };
+            return Value{ .string = String{
+                .value = try allocator.dupe(u8, node.n),
+                .mem_type = .{ .heap = inner },
+                .allocator = allocator,
+            } };
         }
 
         if (node.allocated == .stack) {
-            return Value{ .string = String{ .value = node.n, .allocated = .stack } };
+            return Value{ .string = String{
+                .value = node.n,
+                .mem_type = .stack,
+                .allocator = allocator,
+            } };
         }
 
         const inner = try node.allocated.heap.create(String.Inner);
-        inner.* = String.Inner{ .allocator = node.allocated.heap, .refs = 1 };
+        inner.* = String.Inner{ .refs = 1 };
 
-        return Value{ .string = String{ .value = node.n, .allocated = .{ .heap = inner } } };
+        return Value{ .string = String{
+            .value = node.n,
+            .mem_type = .{ .heap = inner },
+            .allocator = allocator,
+        } };
     }
 
     pub fn clone(self: Value) Value {
@@ -126,6 +210,11 @@ pub const Value = union(enum) {
                 .float => |j| Value{ .float = f + j },
                 else => Value.err("Invalid type", "Can't add nonnumeric values", null),
             },
+            .string => |s| switch (rhs) {
+                .string => |t| Value{ .string = s.concat(t) catch @panic("out of memory") },
+                .char => |c| Value{ .string = s.concatRaw(&[_]u8{c}) catch @panic("out of memory") },
+                else => Value.err("Invalid type", "Can't add string to nonstring", null),
+            },
             else => Value.err("Invalid type", "Can't add nonnumeric values", null),
         };
     }
@@ -148,7 +237,7 @@ pub const Value = union(enum) {
         };
     }
 
-    pub fn mul(lhs: Value, rhs: Value) Value {
+    pub fn mul(allocator: std.mem.Allocator, lhs: Value, rhs: Value) Value {
         if (lhs == .runtime_error) return lhs;
         if (rhs == .runtime_error) return rhs;
         return switch (lhs) {
@@ -160,6 +249,22 @@ pub const Value = union(enum) {
             .float => |f| switch (rhs) {
                 .integer => |i| Value{ .float = f * @as(f64, @floatFromInt(i)) },
                 .float => |j| Value{ .float = f * j },
+                else => Value.err("Invalid type", "Can't multiply nonnumeric values", null),
+            },
+            .string => |s| switch (rhs) {
+                .integer => |i| Value{ .string = s.repeat(i) catch |e| switch (e) {
+                    error.OutOfMemory => @panic("out of memory"),
+                    error.NegativeRepeat => return Value.err("Invalid Repeat", "Can't repeat by a negative number", null),
+                    else => unreachable,
+                } },
+                else => Value.err("Invalid type", "Can't multiply nonnumeric values", null),
+            },
+            .char => |c| switch (rhs) {
+                .integer => |i| Value{ .string = String.initRepeat(allocator, c, i) catch |e| switch (e) {
+                    error.OutOfMemory => @panic("out of memory"),
+                    error.NegativeRepeat => return Value.err("Invalid Repeat", "Can't repeat by a negative number", null),
+                    else => unreachable,
+                } },
                 else => Value.err("Invalid type", "Can't multiply nonnumeric values", null),
             },
             else => Value.err("Invalid type", "Can't multiply nonnumeric values", null),
@@ -342,13 +447,29 @@ pub const Value = union(enum) {
                 .integer => |i| Value{ .boolean = b == (i != 0) },
                 .float => |f| Value{ .boolean = b == (f != 0.0) },
                 .boolean => |j| Value{ .boolean = b == j },
+                .char => |c| Value{ .boolean = b == (c != 0) },
+                .string => |s| Value{ .boolean = b == (s.value.len > 0) },
                 .none => Value{ .boolean = !b },
+                else => Value.err("Invalid type", "Can't compare nonnumeric values", null),
+            },
+            .string => |s| switch (rhs) {
+                .string => |j| Value{ .boolean = s.value.len == j.value.len and std.mem.eql(u8, s.value, j.value) },
+                .char => |c| Value{ .boolean = s.value.len == 1 and s.value[0] == c },
+                .none => Value{ .boolean = s.value.len == 0 },
+                else => Value.err("Invalid type", "Can't compare nonnumeric values", null),
+            },
+            .char => |c| switch (rhs) {
+                .char => |j| Value{ .boolean = c == j },
+                .string => |s| Value{ .boolean = s.value.len == 1 and s.value[0] == c },
+                .none => Value{ .boolean = c == 0 },
                 else => Value.err("Invalid type", "Can't compare nonnumeric values", null),
             },
             .none => switch (rhs) {
                 .integer => |i| Value{ .boolean = i == 0 },
                 .float => |f| Value{ .boolean = f == 0.0 },
                 .boolean => |b| Value{ .boolean = false == b },
+                .string => |s| Value{ .boolean = s.value.len == 0 },
+                .char => |c| Value{ .boolean = c == 0 },
                 .none => Value{ .boolean = true },
                 else => Value.err("Invalid type", "Can't compare nonnumeric values", null),
             },

@@ -63,13 +63,13 @@ fn safeBoolCast(v: rt.Value) !bool {
     return new.boolean;
 }
 
-fn safeStrCast(v: rt.Value) !rt.String {
-    if (v == .none) return rt.String{ .value = "", .allocated = .{ .stack = {} } };
+fn safeStrCast(self: Self, v: rt.Value) !rt.String {
+    if (v == .none) return rt.String{ .value = "", .mem_type = .{ .stack = {} }, .allocator = self.allocator };
     if (v != .string) return error.InvalidCast; // cannot cast non string to string
     return v.string;
 }
 
-fn castToSymbolValue(v: rt.Value, ty: TypeVal) !SymbolTable.SymbolValue {
+fn castToSymbolValue(self: Self, v: rt.Value, ty: TypeVal) !SymbolTable.SymbolValue {
     const SymVal = SymbolTable.SymbolValue;
     return switch (ty) {
         .i8 => SymVal{ .i8 = try safeIntCast(i8, v) },
@@ -85,7 +85,7 @@ fn castToSymbolValue(v: rt.Value, ty: TypeVal) !SymbolTable.SymbolValue {
         .f64 => SymVal{ .f64 = try safeFloatCast(f64, v) },
 
         .bool => SymVal{ .bool = try safeBoolCast(v) },
-        .str => SymVal{ .string = try safeStrCast(v) },
+        .str => SymVal{ .string = try self.safeStrCast(v) },
         .void => SymVal{ .void = {} },
     };
 }
@@ -264,7 +264,7 @@ fn evalBinOp(self: Self, og_node: *Node) rt.Result {
     const result = switch (node.op.kind) {
         .plus => rt.Value.add(val_left, val_right),
         .minus => rt.Value.sub(val_left, val_right),
-        .star => rt.Value.mul(val_left, val_right),
+        .star => rt.Value.mul(self.allocator, val_left, val_right),
         .slash => rt.Value.div(val_left, val_right),
         .percent => rt.Value.mod(val_left, val_right),
         .ampersand => rt.Value.bitAnd(val_left, val_right),
@@ -316,7 +316,7 @@ fn evalVarDecl(self: Self, og_node: *Node) rt.Result {
     if (checkRuntimeError(value, node.value orelse og_node)) |err| return err;
     std.debug.assert(node.type.value == .type);
 
-    const symval = castToSymbolValue(value.clone(), node.type.value.type) catch {
+    const symval = self.castToSymbolValue(value.clone(), node.type.value.type) catch {
         return rt.Result.err("Invalid Cast", "The value can't be converted to the type (could be due to the value is too big or small)", (node.value orelse og_node).getPos());
     };
     const symbol = SymbolTable.Symbol{ .is_const = node.is_const.n, .value = symval };
@@ -341,7 +341,7 @@ fn evalVarAssign(self: Self, og_node: *Node) rt.Result {
     const ty = getTypeValFromSymbolValue(old_symbol.value) catch {
         return rt.Result.err("Invalid Cast", "Can't convert the value into the type", og_node.getPos());
     };
-    const symval = castToSymbolValue(value, ty) catch {
+    const symval = self.castToSymbolValue(value, ty) catch {
         return rt.Result.err("Invalid Cast", "The value can't be converted to the type (could be due to the value is too big or small)", node.value.getPos());
     };
 
