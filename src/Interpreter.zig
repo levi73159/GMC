@@ -8,150 +8,15 @@ const TypeVal = @import("Token.zig").TypeValue;
 
 const rt = @import("runtime.zig");
 
+// common runtime functions for easy access
+const checkRuntimeError = rt.checkRuntimeError;
+const checkRuntimeErrorOrSignal = rt.checkRuntimeErrorOrSignal;
+
 const Self = @This();
 
 allocator: std.mem.Allocator,
 symbols: *SymbolTable,
 heap_str_only: bool = false,
-
-fn safeIntCast(comptime TO: type, v: rt.Value) !TO {
-    // check if value is to big to fit in the type
-    const max = std.math.maxInt(TO);
-    const min = std.math.minInt(TO);
-
-    switch (v) {
-        .integer => |i| {
-            if (i > max) return error.InvalidCast;
-            if (i < min) return error.InvalidCast;
-            return @intCast(i);
-        },
-        .float => |f| {
-            if (f > max) return error.InvalidCast;
-            if (f < min) return error.InvalidCast;
-            const int: i64 = @intFromFloat(f);
-            return @intCast(int);
-        },
-        .none => return 0, // cast none types to 0
-        else => return error.InvalidCast,
-    }
-}
-
-fn safeFloatCast(comptime TO: type, v: rt.Value) !TO {
-    const max = std.math.floatMax(TO);
-    const min = std.math.floatMin(TO);
-
-    switch (v) {
-        .integer => |i| {
-            const float: f64 = @floatFromInt(i);
-            if (float > max) return error.InvalidCast;
-            if (float < min) return error.InvalidCast;
-            return @floatCast(float);
-        },
-        .float => |f| {
-            if (f > max) return error.InvalidCast;
-            if (f < min) return error.InvalidCast;
-            return @floatCast(f);
-        },
-        .none => return 0.0, // cast none types to 0
-        else => return error.InvalidCast,
-    }
-}
-
-fn safeBoolCast(v: rt.Value) !bool {
-    const new = v.convertToBool();
-    if (new == .runtime_error) return error.InvalidCast;
-    return new.boolean;
-}
-
-fn safeStrCast(self: Self, v: rt.Value) !rt.String {
-    if (v == .none) return rt.String{ .value = "", .mem_type = .{ .stack = {} }, .allocator = self.allocator };
-    if (v != .string) return error.InvalidCast; // cannot cast non string to string
-    return v.string;
-}
-
-fn castToSymbolValue(self: Self, v: rt.Value, ty: TypeVal) !SymbolTable.SymbolValue {
-    const SymVal = SymbolTable.SymbolValue;
-    return switch (ty) {
-        .i8 => SymVal{ .i8 = try safeIntCast(i8, v) },
-        .i16 => SymVal{ .i16 = try safeIntCast(i16, v) },
-        .i32 => SymVal{ .i32 = try safeIntCast(i32, v) },
-        .i64 => SymVal{ .i64 = try safeIntCast(i64, v) },
-        .u8 => SymVal{ .u8 = try safeIntCast(u8, v) },
-        .u16 => SymVal{ .u16 = try safeIntCast(u16, v) },
-        .u32 => SymVal{ .u32 = try safeIntCast(u32, v) },
-        .u64 => SymVal{ .u64 = try safeIntCast(u64, v) },
-
-        .f32 => SymVal{ .f32 = try safeFloatCast(f32, v) },
-        .f64 => SymVal{ .f64 = try safeFloatCast(f64, v) },
-
-        .bool => SymVal{ .bool = try safeBoolCast(v) },
-        .str => SymVal{ .string = try self.safeStrCast(v) },
-        .void => SymVal{ .void = {} },
-    };
-}
-
-// values are temporary and are not stored therefore we wanna clone them if needed
-fn castToValue(v: SymbolTable.SymbolValue) rt.Value {
-    return switch (v) {
-        .i8 => |i| rt.Value{ .integer = i },
-        .i16 => |i| rt.Value{ .integer = i },
-        .i32 => |i| rt.Value{ .integer = i },
-        .i64 => |i| rt.Value{ .integer = i },
-        .u8 => |i| rt.Value{ .integer = i },
-        .u16 => |i| rt.Value{ .integer = i },
-        .u32 => |i| rt.Value{ .integer = i },
-        .u64 => |i| rt.Value{ .integer = i },
-
-        .f32 => |f| rt.Value{ .float = f },
-        .f64 => |f| rt.Value{ .float = f },
-
-        .bool => |b| rt.Value{ .boolean = b },
-        .string => |s| rt.Value{ .string = s.clone() },
-        .void => rt.Value{ .none = {} },
-    };
-}
-
-fn getTypeValFromSymbolValue(v: SymbolTable.SymbolValue) !TypeVal {
-    return switch (v) {
-        .i8 => TypeVal.i8,
-        .i16 => TypeVal.i16,
-        .i32 => TypeVal.i32,
-        .i64 => TypeVal.i64,
-        .u8 => TypeVal.u8,
-        .u16 => TypeVal.u16,
-        .u32 => TypeVal.u32,
-        .u64 => TypeVal.u64,
-
-        .f32 => TypeVal.f32,
-        .f64 => TypeVal.f64,
-
-        .bool => TypeVal.bool,
-        .string => TypeVal.str,
-        .void => TypeVal.void,
-    };
-}
-
-fn checkRuntimeError(value: rt.Value, orgin: *Node) ?rt.Result {
-    if (value == .runtime_error) {
-        var err = value.runtime_error;
-        if (err.pos == null) err.pos = orgin.getPos();
-        return rt.Result{ .value = value };
-    }
-    return null;
-}
-
-// returns a runtime error if there is one
-fn checkRuntimeErrorOrSignal(result: rt.Result, orgin: *Node) ?rt.Result {
-    switch (result) {
-        .value => |v| if (v == .runtime_error) {
-            var err = v.runtime_error;
-            if (err.pos == null) err.pos = orgin.getPos();
-            return rt.Result{ .value = v };
-        },
-        .signal => |s| return rt.Result{ .signal = s },
-    }
-    return null;
-}
 
 pub fn init(allocator: std.mem.Allocator, symbols: *SymbolTable) Self {
     return Self{ .allocator = allocator, .symbols = symbols };
@@ -262,7 +127,7 @@ fn evalBinOp(self: Self, og_node: *Node) rt.Result {
     const val_right = right.value;
 
     const result = switch (node.op.kind) {
-        .plus => rt.Value.add(val_left, val_right),
+        .plus => rt.Value.add(self.allocator, val_left, val_right),
         .minus => rt.Value.sub(val_left, val_right),
         .star => rt.Value.mul(self.allocator, val_left, val_right),
         .slash => rt.Value.div(val_left, val_right),
@@ -316,7 +181,7 @@ fn evalVarDecl(self: Self, og_node: *Node) rt.Result {
     if (checkRuntimeError(value, node.value orelse og_node)) |err| return err;
     std.debug.assert(node.type.value == .type);
 
-    const symval = self.castToSymbolValue(value.clone(), node.type.value.type) catch {
+    const symval = rt.castToSymbolValue(self.allocator, value.clone(), node.type.value.type) catch {
         return rt.Result.err("Invalid Cast", "The value can't be converted to the type (could be due to the value is too big or small)", (node.value orelse og_node).getPos());
     };
     const symbol = SymbolTable.Symbol{ .is_const = node.is_const.n, .value = symval };
@@ -338,10 +203,10 @@ fn evalVarAssign(self: Self, og_node: *Node) rt.Result {
     const old_symbol = self.symbols.get(node.identifier.lexeme) orelse {
         return rt.Result.err("Symbol not found", "The symbol was not found", node.identifier.pos);
     };
-    const ty = getTypeValFromSymbolValue(old_symbol.value) catch {
+    const ty = rt.getTypeValFromSymbolValue(old_symbol.value) catch {
         return rt.Result.err("Invalid Cast", "Can't convert the value into the type", og_node.getPos());
     };
-    const symval = self.castToSymbolValue(value, ty) catch {
+    const symval = rt.castToSymbolValue(self.allocator, value, ty) catch {
         return rt.Result.err("Invalid Cast", "The value can't be converted to the type (could be due to the value is too big or small)", node.value.getPos());
     };
 
@@ -350,7 +215,7 @@ fn evalVarAssign(self: Self, og_node: *Node) rt.Result {
         error.SymbolIsImmutable => return rt.Result.err("Symbol is immutable", "The symbol is immutable (const)", og_node.getPos()),
         error.InvalidTypes => return rt.Result.err("Invalid Types", "Can't change a symbol's type", og_node.getPos()),
     };
-    return rt.Result.val(castToValue(symval));
+    return rt.Result.val(rt.castToValue(symval));
 }
 
 fn evalIfStmt(self: Self, og_node: *Node) rt.Result {
@@ -461,7 +326,7 @@ fn evalIdentifier(self: Self, og_node: *Node) rt.Result {
     const symbol = self.symbols.get(token.lexeme) orelse {
         return rt.Result.err("Symbol not found", "The symbol was not found", token.pos);
     };
-    return rt.Result.val(castToValue(symbol.value));
+    return rt.Result.val(rt.castToValue(symbol.value));
 }
 
 fn evalBreak(self: Self, og_node: *Node) rt.Result {

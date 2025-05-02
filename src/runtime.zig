@@ -2,6 +2,9 @@ const std = @import("std");
 
 const Pos = @import("DebugPos.zig");
 const tree = @import("tree.zig");
+const SymbolTable = @import("SymbolTable.zig");
+const TypeVal = @import("Token.zig").TypeValue;
+const Node = tree.Node;
 
 pub const Signal = union(enum) {
     @"break": Value,
@@ -24,6 +27,14 @@ pub const String = struct {
         stack: void,
     },
     allocator: std.mem.Allocator,
+
+    pub fn fromChar(char: u8, allocator: std.mem.Allocator) String {
+        return String{ .value = &[_]u8{char}, .mem_type = .stack, .allocator = allocator };
+    }
+
+    pub fn fromConcatChars(c1: u8, c2: u8, allocator: std.mem.Allocator) String {
+        return String{ .value = &[_]u8{ c1, c2 }, .mem_type = .stack, .allocator = allocator };
+    }
 
     pub fn deinit(self: String) void {
         std.debug.print("deinit string: {s}\n", .{self.value});
@@ -195,7 +206,7 @@ pub const Value = union(enum) {
         return Value{ .runtime_error = Error{ .msg = msg, .extra = extra, .pos = pos } };
     }
 
-    pub fn add(lhs: Value, rhs: Value) Value {
+    pub fn add(allocator: std.mem.Allocator, lhs: Value, rhs: Value) Value {
         if (lhs == .runtime_error) return lhs;
         if (rhs == .runtime_error) return rhs;
 
@@ -213,6 +224,15 @@ pub const Value = union(enum) {
             .string => |s| switch (rhs) {
                 .string => |t| Value{ .string = s.concat(t) catch @panic("out of memory") },
                 .char => |c| Value{ .string = s.concatRaw(&[_]u8{c}) catch @panic("out of memory") },
+                else => Value.err("Invalid type", "Can't add string to nonstring", null),
+            },
+            .char => |c| switch (rhs) {
+                .string => |s| Value{ .string = String.fromChar(c, allocator).concat(s) catch @panic("out of memory") },
+                .char => |d| Value{ .string = String.fromConcatChars(c, d, allocator) },
+                .integer, .float => blk: {
+                    const char = safeIntCast(u8, rhs) catch break :blk Value.err("Invalid type", "Can't cast int or float to char (out of range 0-255)", null);
+                    break :blk Value{ .string = String.fromConcatChars(c, char, allocator) };
+                },
                 else => Value.err("Invalid type", "Can't add string to nonstring", null),
             },
             else => Value.err("Invalid type", "Can't add nonnumeric values", null),
@@ -602,3 +622,163 @@ pub const Result = union(enum) {
         };
     }
 };
+
+pub fn safeIntCast(comptime TO: type, v: Value) !TO {
+    // check if value is to big to fit in the type
+    const max = std.math.maxInt(TO);
+    const min = std.math.minInt(TO);
+
+    switch (v) {
+        .integer => |i| {
+            if (i > max) return error.InvalidCast;
+            if (i < min) return error.InvalidCast;
+            return @intCast(i);
+        },
+        .float => |f| {
+            if (f > max) return error.InvalidCast;
+            if (f < min) return error.InvalidCast;
+            const int: i64 = @intFromFloat(f);
+            return @intCast(int);
+        },
+        .char => |c| {
+            if (c > max) return error.InvalidCast;
+            if (c < min) return error.InvalidCast;
+            return @intCast(c);
+        },
+        .none => return 0, // cast none types to 0
+        else => return error.InvalidCast,
+    }
+}
+
+pub fn safeFloatCast(comptime TO: type, v: Value) !TO {
+    const max = std.math.floatMax(TO);
+    const min = std.math.floatMin(TO);
+
+    switch (v) {
+        .integer => |i| {
+            const float: f64 = @floatFromInt(i);
+            if (float > max) return error.InvalidCast;
+            if (float < min) return error.InvalidCast;
+            return @floatCast(float);
+        },
+        .float => |f| {
+            if (f > max) return error.InvalidCast;
+            if (f < min) return error.InvalidCast;
+            return @floatCast(f);
+        },
+        .char => |c| {
+            const float: f64 = @floatFromInt(c);
+            if (float > max) return error.InvalidCast;
+            if (float < min) return error.InvalidCast;
+            return @floatCast(float);
+        },
+        .none => return 0.0, // cast none types to 0
+        else => return error.InvalidCast,
+    }
+}
+
+pub fn safeBoolCast(v: Value) !bool {
+    const new = v.convertToBool();
+    if (new == .runtime_error) return error.InvalidCast;
+    return new.boolean;
+}
+
+pub fn safeStrCast(allocator: std.mem.Allocator, v: Value) !String {
+    return switch (v) {
+        .string => |s| s,
+        .char => |c| String{ .allocator = allocator, .value = &[_]u8{c}, .mem_type = .stack },
+        .none => String{ .allocator = allocator, .value = "", .mem_type = .stack },
+        .integer => blk: {
+            const char = try safeIntCast(u8, v);
+            break :blk String{ .allocator = allocator, .value = &[_]u8{char}, .mem_type = .stack };
+        },
+        else => return error.InvalidCast,
+    };
+}
+
+pub fn castToSymbolValue(allocator: std.mem.Allocator, v: Value, ty: TypeVal) !SymbolTable.SymbolValue {
+    const SymVal = SymbolTable.SymbolValue;
+    return switch (ty) {
+        .i8 => SymVal{ .i8 = try safeIntCast(i8, v) },
+        .i16 => SymVal{ .i16 = try safeIntCast(i16, v) },
+        .i32 => SymVal{ .i32 = try safeIntCast(i32, v) },
+        .i64 => SymVal{ .i64 = try safeIntCast(i64, v) },
+        .u8 => SymVal{ .u8 = try safeIntCast(u8, v) },
+        .u16 => SymVal{ .u16 = try safeIntCast(u16, v) },
+        .u32 => SymVal{ .u32 = try safeIntCast(u32, v) },
+        .u64 => SymVal{ .u64 = try safeIntCast(u64, v) },
+
+        .f32 => SymVal{ .f32 = try safeFloatCast(f32, v) },
+        .f64 => SymVal{ .f64 = try safeFloatCast(f64, v) },
+
+        .bool => SymVal{ .bool = try safeBoolCast(v) },
+        .str => SymVal{ .string = try safeStrCast(allocator, v) },
+        .char => SymVal{ .char = try safeIntCast(u8, v) },
+        .void => SymVal{ .void = {} },
+    };
+}
+
+// values are temporary and are not stored therefore we wanna clone them if needed
+pub fn castToValue(v: SymbolTable.SymbolValue) Value {
+    return switch (v) {
+        .i8 => |i| Value{ .integer = i },
+        .i16 => |i| Value{ .integer = i },
+        .i32 => |i| Value{ .integer = i },
+        .i64 => |i| Value{ .integer = i },
+        .u8 => |i| Value{ .integer = i },
+        .u16 => |i| Value{ .integer = i },
+        .u32 => |i| Value{ .integer = i },
+        .u64 => |i| Value{ .integer = i },
+
+        .f32 => |f| Value{ .float = f },
+        .f64 => |f| Value{ .float = f },
+
+        .bool => |b| Value{ .boolean = b },
+        .string => |s| Value{ .string = s.clone() },
+        .char => |c| Value{ .char = c },
+        .void => Value{ .none = {} },
+    };
+}
+
+pub fn getTypeValFromSymbolValue(v: SymbolTable.SymbolValue) !TypeVal {
+    return switch (v) {
+        .i8 => TypeVal.i8,
+        .i16 => TypeVal.i16,
+        .i32 => TypeVal.i32,
+        .i64 => TypeVal.i64,
+        .u8 => TypeVal.u8,
+        .u16 => TypeVal.u16,
+        .u32 => TypeVal.u32,
+        .u64 => TypeVal.u64,
+
+        .f32 => TypeVal.f32,
+        .f64 => TypeVal.f64,
+
+        .bool => TypeVal.bool,
+        .string => TypeVal.str,
+        .char => TypeVal.char,
+        .void => TypeVal.void,
+    };
+}
+
+pub fn checkRuntimeError(value: Value, orgin: *Node) ?Result {
+    if (value == .runtime_error) {
+        var err = value.runtime_error;
+        if (err.pos == null) err.pos = orgin.getPos();
+        return Result{ .value = value };
+    }
+    return null;
+}
+
+// returns a runtime error if there is one
+pub fn checkRuntimeErrorOrSignal(result: Result, orgin: *Node) ?Result {
+    switch (result) {
+        .value => |v| if (v == .runtime_error) {
+            var err = v.runtime_error;
+            if (err.pos == null) err.pos = orgin.getPos();
+            return Result{ .value = v };
+        },
+        .signal => |s| return Result{ .signal = s },
+    }
+    return null;
+}
