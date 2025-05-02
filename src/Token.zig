@@ -80,6 +80,7 @@ pub const TypeValue = enum {
     f64,
     bool,
     void,
+    str,
 };
 
 pub const Value = union(enum) {

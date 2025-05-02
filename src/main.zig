@@ -70,7 +70,7 @@ pub fn prettyPrint(node: *const Node, indent: usize) void {
 }
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.DebugAllocator(.{}){};
     defer _ = gpa.deinit();
 
     const allocator = gpa.allocator();
@@ -102,7 +102,7 @@ pub fn main() !void {
         };
         defer file.close();
 
-        runFile(file) catch |err| {
+        runFile(allocator, file) catch |err| {
             std.debug.print("Error running file: {s}\n", .{@errorName(err)});
             std.debug.print("Exiting...\n", .{});
             std.process.exit(255);
@@ -123,11 +123,14 @@ fn repl(gpa: std.mem.Allocator) !void {
     const stdin = std.io.getStdIn();
     const stdout = std.io.getStdOut();
 
+    // use for nodes and tokens
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
     var symbols = SymbolTable.init(gpa);
+    defer symbols.deinit();
+
     while (true) {
         std.debug.assert(arena.reset(.free_all) == true); // always returns true but we want to be sure
 
@@ -141,11 +144,11 @@ fn repl(gpa: std.mem.Allocator) !void {
             break;
         }
 
-        run(text, allocator, &symbols);
+        run(text, allocator, gpa, &symbols);
     }
 }
 
-fn runFile(file: std.fs.File) !void {
+fn runFile(dbg: std.mem.Allocator, file: std.fs.File) !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
 
@@ -156,10 +159,10 @@ fn runFile(file: std.fs.File) !void {
 
     var symbols = SymbolTable.init(allocator);
     defer symbols.deinit();
-    run(contents, allocator, &symbols);
+    run(contents, allocator, dbg, &symbols);
 }
 
-fn run(text: []const u8, allocator: std.mem.Allocator, symbols: *SymbolTable) void {
+fn run(text: []const u8, allocator: std.mem.Allocator, dbg_allocator: std.mem.Allocator, symbols: *SymbolTable) void {
     var lexer = Lexer.init(text);
     const tokens = lexer.makeTokens(allocator) catch |err| switch (err) {
         error.OutOfMemory => {
@@ -175,7 +178,7 @@ fn run(text: []const u8, allocator: std.mem.Allocator, symbols: *SymbolTable) vo
     };
     defer allocator.free(tokens);
 
-    var parser = Parser.init(tokens, allocator);
+    var parser = Parser.init(tokens, allocator, dbg_allocator);
     const nodes = parser.parse() catch |err| switch (err) {
         error.OutOfMemory => {
             std.log.err("OUT OF MEMORY!!!", .{});
@@ -200,8 +203,9 @@ fn run(text: []const u8, allocator: std.mem.Allocator, symbols: *SymbolTable) vo
             return;
         },
     };
-    defer parser.allocator.free(nodes);
+    defer parser.deinit(nodes);
 
-    const interperter = Interpreter.init(symbols);
+    var interperter = Interpreter.init(dbg_allocator, symbols);
+    interperter.heap_str_only = true;
     interperter.eval(nodes);
 }

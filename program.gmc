@@ -1,12 +1,2 @@
-var u32 i;
-var u32 x;
-var u32 y = while (i < 10) {
-    x += 2;
-    i++;
-    if (i == 5) {
-        break x;
-    }
-};
-
-i;
+var str x = "hello";
 x;

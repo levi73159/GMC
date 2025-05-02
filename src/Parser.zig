@@ -7,7 +7,8 @@ const Self = @This();
 tokens: []const Token,
 index: usize = 0,
 prev: ?Token = null,
-allocator: std.mem.Allocator,
+node_allocator: std.mem.Allocator, // quicky because use for nodes
+allocator: std.mem.Allocator, // use for invidual heap needed values
 
 const ParseError = error{
     UnexpectedToken,
@@ -30,8 +31,15 @@ const ParseError = error{
     MissingEndOfString,
 };
 
-pub fn init(tokens: []const Token, allocator: std.mem.Allocator) Self {
-    return Self{ .tokens = tokens, .index = 0, .allocator = allocator };
+pub fn init(tokens: []const Token, node_allocator: std.mem.Allocator, allocator: std.mem.Allocator) Self {
+    return Self{ .tokens = tokens, .index = 0, .node_allocator = node_allocator, .allocator = allocator };
+}
+
+pub fn deinit(self: Self, nodes: []const *tree.Node) void {
+    for (nodes) |node| {
+        node.deinit();
+        self.node_allocator.destroy(node);
+    }
 }
 
 fn current(self: Self) ?Token {
@@ -73,14 +81,17 @@ fn peekN(self: Self, n: usize) ?Token {
 }
 
 fn allocNode(self: *Self, node: tree.Node) !*tree.Node {
-    const ptr = try self.allocator.create(tree.Node);
+    const ptr = try self.node_allocator.create(tree.Node);
     ptr.* = node;
     return ptr;
 }
 
 pub fn parse(self: *Self) ParseError![]const *tree.Node {
-    var nodes: std.ArrayList(*tree.Node) = std.ArrayList(*tree.Node).init(self.allocator);
-    errdefer nodes.deinit();
+    var nodes: std.ArrayList(*tree.Node) = std.ArrayList(*tree.Node).init(self.node_allocator);
+    errdefer {
+        self.deinit(nodes.items);
+        nodes.deinit();
+    }
     while (try self.parseInstruction()) |node| {
         try nodes.append(node);
     }
@@ -119,9 +130,9 @@ fn parseBinaryOperand(self: *Self, operators: []const Token.Kind, next: ParseFn)
 
 fn parseBlockOr(self: *Self, next: ParseFn) ParseError!*tree.Node {
     if (self.consume(.left_curly_bracket)) |start| {
-        var nodes: std.ArrayList(*tree.Node) = std.ArrayList(*tree.Node).init(self.allocator);
+        var nodes: std.ArrayList(*tree.Node) = std.ArrayList(*tree.Node).init(self.node_allocator);
         errdefer {
-            for (nodes.items) |node| self.allocator.destroy(node);
+            for (nodes.items) |node| self.node_allocator.destroy(node);
             nodes.deinit();
         }
 
@@ -575,18 +586,19 @@ fn parseString(self: *Self, tok: Token, is_char: bool) ParseError!*tree.Node {
     }
 
     // realloc buffer to fit string aka size = j
-    buf = try self.allocator.realloc(buf, j);
-
     if (is_char) {
         if (buf.len != 1) return error.InvalidCharacter;
+        defer self.allocator.free(buf); // no longer need the buffer
         return self.allocNode(tree.Node{ .char = .{ .n = buf[0], .orginal = tok } });
-    }
+    } else {
+        buf = try self.allocator.realloc(buf, j);
 
-    return self.allocNode(.{
-        .string = .{
-            .n = buf,
-            .orginal = tok,
-            .allocated = .{ .heap = self.allocator },
-        },
-    });
+        return self.allocNode(.{
+            .string = .{
+                .n = buf,
+                .orginal = tok,
+                .allocated = .{ .heap = self.node_allocator },
+            },
+        });
+    }
 }

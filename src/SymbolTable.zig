@@ -1,4 +1,5 @@
 const std = @import("std");
+const rt = @import("runtime.zig");
 
 const Self = @This();
 
@@ -18,6 +19,22 @@ pub const SymbolValue = union(enum) {
 
     bool: bool,
     void: void,
+
+    string: rt.String,
+
+    pub fn deinit(self: SymbolValue) void {
+        switch (self) {
+            .string => |s| s.deinit(),
+            else => {},
+        }
+    }
+
+    pub fn clone(self: SymbolValue) SymbolValue {
+        return switch (self) {
+            .string => |s| SymbolValue{ .string = s.clone() },
+            else => self,
+        };
+    }
 };
 pub const SymbolType = std.meta.Tag(SymbolValue);
 
@@ -35,8 +52,11 @@ pub fn init(allocator: std.mem.Allocator) Self {
 }
 
 pub fn deinit(self: *Self) void {
-    var key_it = self.table.keyIterator();
-    while (key_it.next()) |key| self.allocator.free(key.*);
+    var it = self.table.iterator();
+    while (it.next()) |entry| {
+        entry.value_ptr.value.deinit();
+        self.allocator.free(entry.key_ptr.*);
+    }
     self.table.deinit();
 }
 
@@ -54,7 +74,8 @@ pub fn set(self: *Self, name: []const u8, value: SymbolValue) !void {
     const ty = std.meta.activeTag(symbol.value);
     const val = std.meta.activeTag(value);
     if (ty != val) return error.InvalidTypes;
-    symbol.value = value;
+    symbol.value.deinit(); // deinit the old value
+    symbol.value = value; // init the new value with the clone
 }
 
 pub fn get(self: Self, name: []const u8) ?Symbol {
