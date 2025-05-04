@@ -5,6 +5,8 @@ const tree = @import("tree.zig");
 const SymbolTable = @import("SymbolTable.zig");
 const TypeVal = @import("Token.zig").TypeValue;
 const Node = tree.Node;
+const Intrepreter = @import("Interpreter.zig");
+const Params = tree.FuncParam;
 
 pub const Signal = union(enum) {
     @"break": Value,
@@ -15,6 +17,13 @@ pub const Error = struct {
     msg: []const u8,
     extra: ?[]const u8,
     pos: ?Pos,
+
+    extra_allocated: bool = false,
+    pub fn deinit(self: Error, allocator: std.mem.Allocator) void {
+        if (self.extra_allocated) {
+            if (self.extra) |extra| allocator.free(extra);
+        }
+    }
 };
 
 pub const String = struct {
@@ -135,12 +144,49 @@ pub const String = struct {
     }
 };
 
+pub const Function = struct {
+    name: []const u8,
+    params: []const tree.FuncParam,
+    body: *tree.Node, // root node to execute
+    return_type: TypeVal,
+    return_type_pos: ?Pos = null, // debug pos, might be usefull but not needed
+
+    pub fn call(self: Function, args: []const Value, base: Intrepreter) Result {
+        var symbols = SymbolTable.init(base.allocator);
+        defer symbols.deinit();
+
+        const msg = std.fmt.allocPrint(base.allocator, "Expected {d} arguments got {d}\n", .{ self.params.len, args.len }) catch unreachable;
+        if (self.params.len != args.len) return Result.errHeap("Invalid number of arguments", msg, null);
+
+        for (self.params, args) |param, arg| {
+            const symbol_value = castToSymbolValue(base.allocator, arg, param.type.value.type) catch {
+                const msg2 = std.fmt.allocPrint(base.allocator, "Can't cast {s} to {s}", .{ @tagName(arg), @tagName(param.type.value.type) }) catch unreachable;
+                return Result.errHeap("Invalid cast", msg2, null);
+            };
+
+            symbols.add(param.name, SymbolTable.Symbol{ .value = symbol_value, .is_const = true }) catch @panic("out of memory");
+        }
+
+        symbols.parent = base.symbols;
+        const scope = Intrepreter{
+            .allocator = base.allocator,
+            .symbols = &symbols,
+            .heap_str_only = base.heap_str_only,
+        };
+
+        const ret = scope.evalNode(self.body);
+        if (checkRuntimeErrorOrSignal(ret, self.body)) |err| return err;
+        return ret;
+    }
+};
+
 pub const Value = union(enum) {
     integer: i65,
     float: f64,
     boolean: bool,
     string: String,
     char: u8,
+    func: Function,
     none,
     runtime_error: Error,
 
@@ -152,6 +198,7 @@ pub const Value = union(enum) {
             .string => |s| Value{ .boolean = s.value.len > 0 },
             .char => |c| Value{ .boolean = c != 0 },
             .none => Value{ .boolean = false }, // none == false
+            .func => Value{ .boolean = true }, // func == true because it have a value
             .boolean, .runtime_error => self,
         };
     }
@@ -195,9 +242,10 @@ pub const Value = union(enum) {
         };
     }
 
-    pub fn deinit(self: Value) void {
+    pub fn deinit(self: Value, allocator: std.mem.Allocator) void {
         switch (self) {
             .string => |s| s.deinit(),
+            .runtime_error => |e| e.deinit(allocator),
             else => {},
         }
     }
@@ -616,6 +664,14 @@ pub const Result = union(enum) {
         };
     }
 
+    pub fn errHeap(msg: []const u8, extra: []const u8, pos: ?Pos) Result {
+        var rterr = Value.err(msg, extra, pos);
+        rterr.runtime_error.extra_allocated = true;
+        return Result{
+            .value = rterr,
+        };
+    }
+
     pub fn sig(s: Signal) Result {
         return Result{
             .signal = s,
@@ -692,6 +748,7 @@ pub fn safeStrCast(allocator: std.mem.Allocator, v: Value) !String {
             const char = try safeIntCast(u8, v);
             break :blk String{ .allocator = allocator, .value = &[_]u8{char}, .mem_type = .stack };
         },
+        .func => |f| String{ .allocator = allocator, .value = f.name, .mem_type = .stack }, // cast function to string == func name????
         else => return error.InvalidCast,
     };
 }
@@ -733,6 +790,7 @@ pub fn castToValue(v: SymbolTable.SymbolValue) Value {
         .bool => |b| Value{ .boolean = b },
         .string => |s| Value{ .string = s.clone() },
         .char => |c| Value{ .char = c },
+        .func => |f| Value{ .func = f },
         .void => Value{ .none = {} },
     };
 }
@@ -753,6 +811,7 @@ pub fn getTypeValFromSymbolValue(v: SymbolTable.SymbolValue) !TypeVal {
         .string => TypeVal.str,
         .char => TypeVal.char,
         .void => TypeVal.void,
+        .func => return error.InvalidType, // func does not havea typeval
     };
 }
 

@@ -27,6 +27,7 @@ pub const Node = union(enum) {
     breakstmt: BreakStmt, // only need a token for debug pos
     continuestmt: Token,
     whilestmt: WhileStmt,
+    function_decl: FunctionDecl,
 
     pub fn getLeftPos(self: Node) ?DebugPos {
         return switch (self) {
@@ -48,6 +49,7 @@ pub const Node = union(enum) {
             .breakstmt => |b| b.start.pos,
             .continuestmt => |c| c.pos,
             .whilestmt => |w| w.start.pos,
+            .function_decl => |f| f.start.pos,
         };
     }
 
@@ -71,6 +73,7 @@ pub const Node = union(enum) {
             .breakstmt => |b| if (b.value) |value| value.getRightPos() else b.start.pos,
             .continuestmt => |c| c.pos,
             .whilestmt => |w| w.body.getRightPos(),
+            .function_decl => |f| f.body.getRightPos(),
         };
     }
 
@@ -97,6 +100,7 @@ pub const Node = union(enum) {
             .breakstmt => |b| b.deinit(),
             .continuestmt => {},
             .whilestmt => |w| w.deinit(),
+            .function_decl => |f| f.deinit(),
         }
     }
 };
@@ -255,6 +259,23 @@ pub const WhileStmt = struct {
 
     pub fn deinit(self: WhileStmt) void {
         self.condition.deinit();
+        self.body.deinit();
+    }
+};
+
+pub const FuncParam = struct {
+    type: Token, // should be an type
+    name: Token, // should be an identifier
+};
+
+pub const FunctionDecl = struct {
+    start: Token,
+    identifier: Token,
+    params: []const FuncParam,
+    ret_type: Token,
+    body: *Node,
+
+    pub fn deinit(self: FunctionDecl) void {
         self.body.deinit();
     }
 };

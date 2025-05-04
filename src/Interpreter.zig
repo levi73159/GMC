@@ -47,9 +47,10 @@ pub fn eval(self: Self, nodes: []const *Node) void {
                 std.debug.print("Result: {s}\n", .{s.value});
             },
             .char => |c| std.debug.print("Result: {c}\n", .{c}),
+            .func => |f| std.debug.print("Result: func {s}\n", .{f.name}),
             .none => std.debug.print("Result: None\n", .{}),
         }
-        result.value.deinit();
+        result.value.deinit(self.allocator);
     }
 }
 
@@ -70,6 +71,7 @@ pub fn evalNode(self: Self, node: *Node) rt.Result {
         .whilestmt => self.evalWhileStmt(node),
         .breakstmt => self.evalBreak(node),
         .continuestmt => rt.Result.sig(.@"continue"),
+        .function_decl => self.evalFunctionDecl(node),
     };
 }
 
@@ -351,4 +353,24 @@ fn evalCharacter(self: Self, og_node: *Node) rt.Result {
     _ = self;
     const node = og_node.char;
     return rt.Result.val(.{ .char = node.n });
+}
+
+fn evalFunctionDecl(self: Self, og_node: *Node) rt.Result {
+    const node = og_node.function_decl;
+    std.debug.assert(node.ret_type.value == .type); // safety check
+
+    self.symbols.add(node.identifier.lexeme, SymbolTable.Symbol{
+        .is_const = true, // functions are always const
+        .value = .{ .func = .{
+            .name = node.identifier.lexeme,
+            .params = node.params,
+            .body = node.body,
+            .return_type = node.ret_type.value.type,
+            .return_type_pos = node.ret_type.pos,
+        } },
+    }) catch |err| switch (err) {
+        error.OutOfMemory => std.debug.panic("OUT OF MEMORY!!!", .{}),
+        error.SymbolAlreadyExists => return rt.Result.err("Symbol already exists", "The symbol already exists", node.identifier.pos),
+    };
+    return rt.Result.none(); // decl function does not return a value
 }

@@ -1,12 +1,4 @@
-const str my_str = "Hello, World!";
-const int my_int = 42;
-const float my_float = 3.14;
-
-const str my_str_with_newline = my_str + "\n";
-const str with_escape = "Hello, \"World\"!";
-
-my_str;
-my_int;
-my_float;
-my_str_with_newline;
-with_escape;
+func name(u8 args) void {
+    args;
+    const u8 x = 32;
+}

@@ -20,6 +20,7 @@ pub const SymbolValue = union(enum) {
 
     string: rt.String,
     char: u8, // char is another name for u8 but treated like a character instead of a number
+    func: rt.Function,
 
     pub fn deinit(self: SymbolValue) void {
         switch (self) {

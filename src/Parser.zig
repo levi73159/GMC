@@ -129,6 +129,14 @@ fn parseBinaryOperand(self: *Self, operators: []const Token.Kind, next: ParseFn)
 }
 
 fn parseBlockOr(self: *Self, next: ParseFn) ParseError!*tree.Node {
+    if (self.match(.left_curly_bracket)) {
+        return self.parseBlock();
+    }
+
+    return next(self);
+}
+
+fn parseBlock(self: *Self) ParseError!*tree.Node {
     if (self.consume(.left_curly_bracket)) |start| {
         var nodes: std.ArrayList(*tree.Node) = std.ArrayList(*tree.Node).init(self.node_allocator);
         errdefer {
@@ -153,7 +161,7 @@ fn parseBlockOr(self: *Self, next: ParseFn) ParseError!*tree.Node {
         });
     }
 
-    return next(self);
+    return error.MissingCurlyBracket;
 }
 
 fn parseStatement(self: *Self) ParseError!*tree.Node {
@@ -189,6 +197,9 @@ fn parseStatement(self: *Self) ParseError!*tree.Node {
         } else {
             return node;
         }
+    }
+    if (self.match(.func_kw)) {
+        return try self.parseFunction();
     }
     if (self.consume(.break_kw)) |st| {
         if (self.consume(.semicolon)) |_| {
@@ -603,4 +614,41 @@ fn parseString(self: *Self, tok: Token, is_char: bool) ParseError!*tree.Node {
             },
         });
     }
+}
+
+fn parseFunction(self: *Self) ParseError!*tree.Node {
+    const start = self.consume(.func_kw) orelse return self.badToken(error.UnexpectedToken);
+
+    const identifier = self.consume(.identifier) orelse return self.badToken(error.ExpectedIdentifier);
+
+    _ = self.consume(.left_paren) orelse return self.badToken(error.MissingParen);
+
+    var params = std.ArrayList(tree.FuncParam).init(self.node_allocator);
+    errdefer params.deinit();
+
+    while (true) {
+        const t = self.consume(.type) orelse return self.badToken(error.ExpectedType);
+        const name = self.consume(.identifier) orelse return self.badToken(error.ExpectedIdentifier);
+
+        try params.append(.{
+            .type = t,
+            .name = name,
+        });
+
+        if (self.consume(.comma)) |_| {} else break;
+    }
+    _ = self.consume(.right_paren) orelse return self.badToken(error.MissingParen);
+
+    const ret_type = self.consume(.type) orelse return self.badToken(error.ExpectedType);
+    const body = try self.parseBlock();
+
+    return self.allocNode(tree.Node{
+        .function_decl = .{
+            .start = start,
+            .identifier = identifier,
+            .params = try params.toOwnedSlice(),
+            .ret_type = ret_type,
+            .body = body,
+        },
+    });
 }

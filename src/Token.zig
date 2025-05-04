@@ -29,6 +29,7 @@ pub const Kind = enum {
     equal_equal,
     bang,
     bang_equal,
+    comma,
 
     semicolon,
     equal,
@@ -51,6 +52,7 @@ pub const Kind = enum {
     // keywords
     var_kw,
     const_kw,
+    func_kw,
     true_kw,
     false_kw,
     if_kw,
