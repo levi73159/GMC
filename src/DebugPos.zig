@@ -23,7 +23,10 @@ pub fn format(self: Self, comptime _: []const u8, _: std.fmt.FormatOptions, writ
     const end_line = std.mem.indexOfScalar(u8, self.orginal_buffer[self.end..], '\n') orelse self.orginal_buffer.len;
 
     const actual_end = @min(end_line + self.end, self.orginal_buffer.len);
-    const line = self.orginal_buffer[start_line..actual_end];
+    const untrim_line = self.orginal_buffer[start_line..actual_end];
+    const line = std.mem.trim(u8, untrim_line, " \t");
+
+    const trimmed_amount = untrim_line.len - line.len;
 
     // third step: find how many words are in the line
     var words = std.mem.tokenizeScalar(u8, line, ' '); // this is the best way i found to do this because we don't wanna count every space
@@ -45,14 +48,14 @@ pub fn format(self: Self, comptime _: []const u8, _: std.fmt.FormatOptions, writ
 
         // make sure to ignore the spaces
         const new_start = if (cutoff_start) if (std.mem.lastIndexOfScalar(u8, self.orginal_buffer[0..start], ' ')) |index| index + 1 else 0 else start;
-        const new_end = if (cutoff_end) if (std.mem.indexOfScalar(u8, self.orginal_buffer[end..], ' ')) |index| index - 1 else self.orginal_buffer.len else end;
+        const new_end = if (cutoff_end) if (std.mem.indexOfScalar(u8, self.orginal_buffer[end..], ' ')) |index| index + end else self.orginal_buffer.len else end;
 
         const text = self.orginal_buffer[new_start..new_end];
 
         const width = self.end - self.start;
         const offset = self.start - new_start;
         const missing_start = new_start > start_line; // if the start is missing then we need to print the ...
-        const missing_end = new_end < end_line;
+        const missing_end = new_end < actual_end;
 
         const missing_start_string = "... ";
         if (missing_start) try writer.print(missing_start_string, .{});
@@ -65,11 +68,8 @@ pub fn format(self: Self, comptime _: []const u8, _: std.fmt.FormatOptions, writ
             try writer.writeByteNTimes('^', width);
         }
     } else {
-        const trimmed_line = std.mem.trim(u8, line, " \t");
-        // get how many spaced we trim at start
-        const trim_start = line.len - trimmed_line.len;
         const width: usize = self.end - self.start;
-        const offset: usize = self.start - start_line - trim_start;
+        const offset: usize = self.start - start_line - trimmed_amount;
 
         try writer.print("{s}\n", .{line});
         if (!self.multi_line) {

@@ -1,5 +1,6 @@
 func name(u8 args) void {
     var int x = args;
-    x++;
+    const int y = args;
+    x++; x--; x += 1; x -= 1; x *= 2;x++; x--; x += 1; x -= 1; x *= 2; x++; x--; x += 1; x -= 1; x *= 2; y++; x /= 2; y; y; y; x *= y; x /= y; x = y; x++; x--; x += 1; x -= 1; x *= 2; x++; x--; x += 1; x -= 1; x *= 2;
 }
 name(1);
