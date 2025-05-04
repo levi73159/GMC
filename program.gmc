@@ -1,4 +1,5 @@
 func name(u8 args) void {
-    args;
-    const u8 x = 32;
+    var int x = args;
+    x++;
 }
+name(1);

@@ -22,12 +22,13 @@ pub fn init(allocator: std.mem.Allocator, symbols: *SymbolTable) Self {
     return Self{ .allocator = allocator, .symbols = symbols };
 }
 
-pub fn eval(self: Self, nodes: []const *Node) void {
+pub fn eval(self: Self, nodes: []const *const Node) void {
     for (nodes) |node| {
         var result = self.evalNode(node);
         if (result == .signal) {
             result = rt.Result.err("Signal error", "Can't handle signal at current scope", node.getPos());
         }
+        defer result.value.deinit(self.allocator);
         switch (result.value) {
             .runtime_error => |err| {
                 std.debug.print("Runtime error: {s}\n", .{err.msg});
@@ -50,11 +51,10 @@ pub fn eval(self: Self, nodes: []const *Node) void {
             .func => |f| std.debug.print("Result: func {s}\n", .{f.name}),
             .none => std.debug.print("Result: None\n", .{}),
         }
-        result.value.deinit(self.allocator);
     }
 }
 
-pub fn evalNode(self: Self, node: *Node) rt.Result {
+pub fn evalNode(self: Self, node: *const Node) rt.Result {
     return switch (node.*) {
         .number => self.evalNumber(node.number),
         .string => self.evalString(node),
@@ -72,10 +72,11 @@ pub fn evalNode(self: Self, node: *Node) rt.Result {
         .breakstmt => self.evalBreak(node),
         .continuestmt => rt.Result.sig(.@"continue"),
         .function_decl => self.evalFunctionDecl(node),
+        .call => self.evalCall(node),
     };
 }
 
-fn evalBlock(self: Self, og_node: *Node) rt.Result {
+fn evalBlock(self: Self, og_node: *const Node) rt.Result {
     var arena = std.heap.ArenaAllocator.init(self.allocator);
     defer arena.deinit();
 
@@ -101,7 +102,7 @@ fn evalNumber(_: Self, node: tree.Number) rt.Result {
     });
 }
 
-fn evalBinOp(self: Self, og_node: *Node) rt.Result {
+fn evalBinOp(self: Self, og_node: *const Node) rt.Result {
     const node = og_node.bin_op;
     const left = self.evalNode(node.left);
     if (checkRuntimeErrorOrSignal(left, node.left)) |err| return err;
@@ -154,7 +155,7 @@ fn evalBinOp(self: Self, og_node: *Node) rt.Result {
     return rt.Result.val(result);
 }
 
-fn evalUnaryOp(self: Self, og_node: *Node) rt.Result {
+fn evalUnaryOp(self: Self, og_node: *const Node) rt.Result {
     const node = og_node.unary_op;
     const right: rt.Result = self.evalNode(node.right);
     if (checkRuntimeErrorOrSignal(right, node.right)) |err| return err;
@@ -172,7 +173,7 @@ fn evalUnaryOp(self: Self, og_node: *Node) rt.Result {
     return rt.Result.val(result);
 }
 
-fn evalVarDecl(self: Self, og_node: *Node) rt.Result {
+fn evalVarDecl(self: Self, og_node: *const Node) rt.Result {
     const node = og_node.var_decl;
     const value: rt.Value = if (node.value) |v| blk: {
         const result = self.evalNode(v);
@@ -196,7 +197,7 @@ fn evalVarDecl(self: Self, og_node: *Node) rt.Result {
     return rt.Result.val(value);
 }
 
-fn evalVarAssign(self: Self, og_node: *Node) rt.Result {
+fn evalVarAssign(self: Self, og_node: *const Node) rt.Result {
     const node = og_node.var_assign;
     const rtresult = self.evalNode(node.value);
     if (checkRuntimeErrorOrSignal(rtresult, node.value)) |err| return err;
@@ -220,7 +221,7 @@ fn evalVarAssign(self: Self, og_node: *Node) rt.Result {
     return rt.Result.val(rt.castToValue(symval));
 }
 
-fn evalIfStmt(self: Self, og_node: *Node) rt.Result {
+fn evalIfStmt(self: Self, og_node: *const Node) rt.Result {
     const node = og_node.ifstmt;
     const condition = self.evalNode(node.condition);
     if (checkRuntimeErrorOrSignal(condition, node.condition)) |err| return err;
@@ -244,7 +245,7 @@ fn evalIfStmt(self: Self, og_node: *Node) rt.Result {
     return rt.Result.none();
 }
 
-fn evalForStmt(self: Self, og_node: *Node) rt.Result {
+fn evalForStmt(self: Self, og_node: *const Node) rt.Result {
     const node = og_node.forstmt;
     var arena = std.heap.ArenaAllocator.init(self.allocator);
     defer arena.deinit();
@@ -298,7 +299,7 @@ fn evalForStmt(self: Self, og_node: *Node) rt.Result {
     return rt.Result.none();
 }
 
-fn evalWhileStmt(self: Self, og_node: *Node) rt.Result {
+fn evalWhileStmt(self: Self, og_node: *const Node) rt.Result {
     const node = og_node.whilestmt;
     while (true) {
         const condition = self.evalNode(node.condition);
@@ -323,7 +324,7 @@ fn evalWhileStmt(self: Self, og_node: *Node) rt.Result {
     return rt.Result.none();
 }
 
-fn evalIdentifier(self: Self, og_node: *Node) rt.Result {
+fn evalIdentifier(self: Self, og_node: *const Node) rt.Result {
     const token = og_node.identifier;
     const symbol = self.symbols.get(token.lexeme) orelse {
         return rt.Result.err("Symbol not found", "The symbol was not found", token.pos);
@@ -331,7 +332,7 @@ fn evalIdentifier(self: Self, og_node: *Node) rt.Result {
     return rt.Result.val(rt.castToValue(symbol.value));
 }
 
-fn evalBreak(self: Self, og_node: *Node) rt.Result {
+fn evalBreak(self: Self, og_node: *const Node) rt.Result {
     const node = og_node.breakstmt;
     if (node.value) |val_node| {
         const result = self.evalNode(val_node);
@@ -344,18 +345,18 @@ fn evalBreak(self: Self, og_node: *Node) rt.Result {
     }
 }
 
-fn evalString(self: Self, og_node: *Node) rt.Result {
+fn evalString(self: Self, og_node: *const Node) rt.Result {
     const node = og_node.string;
     return rt.Result.val(rt.Value.str(node, self.heap_str_only, self.allocator) catch @panic("OUT OF MEMORY"));
 }
 
-fn evalCharacter(self: Self, og_node: *Node) rt.Result {
+fn evalCharacter(self: Self, og_node: *const Node) rt.Result {
     _ = self;
     const node = og_node.char;
     return rt.Result.val(.{ .char = node.n });
 }
 
-fn evalFunctionDecl(self: Self, og_node: *Node) rt.Result {
+fn evalFunctionDecl(self: Self, og_node: *const Node) rt.Result {
     const node = og_node.function_decl;
     std.debug.assert(node.ret_type.value == .type); // safety check
 
@@ -373,4 +374,30 @@ fn evalFunctionDecl(self: Self, og_node: *Node) rt.Result {
         error.SymbolAlreadyExists => return rt.Result.err("Symbol already exists", "The symbol already exists", node.identifier.pos),
     };
     return rt.Result.none(); // decl function does not return a value
+}
+
+fn evalCall(self: Self, og_node: *const Node) rt.Result {
+    const node = og_node.call;
+    const callee = self.symbols.get(node.callee.lexeme) orelse {
+        return rt.Result.err("Symbol not found", "The symbol was not found", node.callee.pos);
+    };
+    // right now only functions can be called
+    switch (callee.value) {
+        .func => |func| {
+            var args_buf: [256]rt.Value = undefined; // 256 is being geneous just in case the user tries to push the limit
+            var args_index: usize = 0;
+            for (node.args) |arg| {
+                const arg_value = self.evalNode(arg);
+                if (checkRuntimeErrorOrSignal(arg_value, arg)) |err| return err; // no error or signal allowed
+                args_buf[args_index] = arg_value.value;
+                args_index += 1;
+            }
+            const args = args_buf[0..args_index];
+
+            const ret = func.call(args, self);
+            if (checkRuntimeErrorOrSignal(ret, og_node)) |err| return err;
+            return ret;
+        },
+        else => return rt.Result.err("Not a function", "The symbol is not a function", node.callee.pos),
+    }
 }

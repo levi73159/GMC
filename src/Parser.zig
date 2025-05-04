@@ -35,7 +35,7 @@ pub fn init(tokens: []const Token, node_allocator: std.mem.Allocator, allocator:
     return Self{ .tokens = tokens, .index = 0, .node_allocator = node_allocator, .allocator = allocator };
 }
 
-pub fn deinit(self: Self, nodes: []const *tree.Node) void {
+pub fn deinit(self: Self, nodes: []const *const tree.Node) void {
     for (nodes) |node| {
         node.deinit();
         self.node_allocator.destroy(node);
@@ -80,14 +80,14 @@ fn peekN(self: Self, n: usize) ?Token {
     return if (self.index + n < self.tokens.len) self.tokens[self.index + n] else null;
 }
 
-fn allocNode(self: *Self, node: tree.Node) !*tree.Node {
+fn allocNode(self: *Self, node: tree.Node) !*const tree.Node {
     const ptr = try self.node_allocator.create(tree.Node);
     ptr.* = node;
     return ptr;
 }
 
-pub fn parse(self: *Self) ParseError![]const *tree.Node {
-    var nodes: std.ArrayList(*tree.Node) = std.ArrayList(*tree.Node).init(self.node_allocator);
+pub fn parse(self: *Self) ParseError![]const *const tree.Node {
+    var nodes: std.ArrayList(*const tree.Node) = std.ArrayList(*const tree.Node).init(self.node_allocator);
     errdefer {
         self.deinit(nodes.items);
         nodes.deinit();
@@ -98,13 +98,13 @@ pub fn parse(self: *Self) ParseError![]const *tree.Node {
     return nodes.toOwnedSlice();
 }
 
-pub fn parseInstruction(self: *Self) ParseError!?*tree.Node {
+pub fn parseInstruction(self: *Self) ParseError!?*const tree.Node {
     if (self.current() == null) return null;
     return self.parseBlockOr(&parseStatement); // if no block parse statement
 }
 
-const ParseFn = *const fn (*Self) ParseError!*tree.Node;
-fn parseBinaryOperand(self: *Self, operators: []const Token.Kind, next: ParseFn) ParseError!*tree.Node {
+const ParseFn = *const fn (*Self) ParseError!*const tree.Node;
+fn parseBinaryOperand(self: *Self, operators: []const Token.Kind, next: ParseFn) ParseError!*const tree.Node {
     const Context = struct {
         fn check(s: *Self, ops: []const Token.Kind) bool {
             for (ops) |op| {
@@ -128,7 +128,7 @@ fn parseBinaryOperand(self: *Self, operators: []const Token.Kind, next: ParseFn)
     return left;
 }
 
-fn parseBlockOr(self: *Self, next: ParseFn) ParseError!*tree.Node {
+fn parseBlockOr(self: *Self, next: ParseFn) ParseError!*const tree.Node {
     if (self.match(.left_curly_bracket)) {
         return self.parseBlock();
     }
@@ -136,9 +136,9 @@ fn parseBlockOr(self: *Self, next: ParseFn) ParseError!*tree.Node {
     return next(self);
 }
 
-fn parseBlock(self: *Self) ParseError!*tree.Node {
+fn parseBlock(self: *Self) ParseError!*const tree.Node {
     if (self.consume(.left_curly_bracket)) |start| {
-        var nodes: std.ArrayList(*tree.Node) = std.ArrayList(*tree.Node).init(self.node_allocator);
+        var nodes: std.ArrayList(*const tree.Node) = std.ArrayList(*const tree.Node).init(self.node_allocator);
         errdefer {
             for (nodes.items) |node| self.node_allocator.destroy(node);
             nodes.deinit();
@@ -164,7 +164,7 @@ fn parseBlock(self: *Self) ParseError!*tree.Node {
     return error.MissingCurlyBracket;
 }
 
-fn parseStatement(self: *Self) ParseError!*tree.Node {
+fn parseStatement(self: *Self) ParseError!*const tree.Node {
     if (self.match(.if_kw)) {
         const node = try self.parseIf(false);
         if (node.ifstmt.isBlockless()) {
@@ -218,7 +218,7 @@ fn parseStatement(self: *Self) ParseError!*tree.Node {
     return self.parseExprWithSemicolon();
 }
 
-fn parseExprWithSemicolon(self: *Self) ParseError!*tree.Node {
+fn parseExprWithSemicolon(self: *Self) ParseError!*const tree.Node {
     const expr = try self.parseExpression();
     if (self.consume(.semicolon)) |_| {
         return expr;
@@ -231,7 +231,7 @@ inline fn badToken(self: *Self, err: ParseError) ParseError {
     return err;
 }
 
-fn parseExpression(self: *Self) ParseError!*tree.Node {
+fn parseExpression(self: *Self) ParseError!*const tree.Node {
     if (self.match(.var_kw) or self.match(.const_kw)) {
         return self.parseVariableDecl();
     }
@@ -259,7 +259,7 @@ fn parseExpression(self: *Self) ParseError!*tree.Node {
     return self.parseLogicalOr();
 }
 
-fn parseVariableDecl(self: *Self) ParseError!*tree.Node {
+fn parseVariableDecl(self: *Self) ParseError!*const tree.Node {
     const tok = self.advance().?; // should never be null
     const is_const = tok.kind == .const_kw;
     const t = self.consume(.type) orelse return self.badToken(error.ExpectedType);
@@ -287,14 +287,14 @@ fn parseVariableDecl(self: *Self) ParseError!*tree.Node {
     }
 }
 
-fn parseVariableAssign(self: *Self) ParseError!*tree.Node {
+fn parseVariableAssign(self: *Self) ParseError!*const tree.Node {
     const identifier = self.consume(.identifier) orelse return self.badToken(error.ExpectedIdentifier);
     _ = self.consume(.equal) orelse return self.badToken(error.ExpectedEqual);
     const value = try self.parseExpression();
     return self.allocNode(tree.Node{ .var_assign = .{ .identifier = identifier, .value = value } });
 }
 
-fn parseVariableAssignOp(self: *Self) ParseError!*tree.Node {
+fn parseVariableAssignOp(self: *Self) ParseError!*const tree.Node {
     const identifier = self.consume(.identifier) orelse return self.badToken(error.ExpectedIdentifier);
     const op = self.advance() orelse return error.MissingOperator;
 
@@ -335,7 +335,7 @@ fn parseVariableAssignOp(self: *Self) ParseError!*tree.Node {
     });
 }
 
-fn parseIf(self: *Self, expect_value: bool) ParseError!*tree.Node {
+fn parseIf(self: *Self, expect_value: bool) ParseError!*const tree.Node {
     const start = self.consume(.if_kw) orelse return self.badToken(error.UnexpectedToken); // should not happen so we don't make the error clear
     _ = self.consume(.left_paren) orelse return self.badToken(error.MissingParen);
     // parse the condition (expression)
@@ -385,7 +385,7 @@ fn parseIf(self: *Self, expect_value: bool) ParseError!*tree.Node {
     });
 }
 
-fn parseFor(self: *Self, expect_value: bool) ParseError!*tree.Node {
+fn parseFor(self: *Self, expect_value: bool) ParseError!*const tree.Node {
     const start = self.consume(.for_kw) orelse return self.badToken(error.UnexpectedToken);
     _ = self.consume(.left_paren) orelse return self.badToken(error.MissingParen);
 
@@ -416,7 +416,7 @@ fn parseFor(self: *Self, expect_value: bool) ParseError!*tree.Node {
     });
 }
 
-fn parseWhile(self: *Self) ParseError!*tree.Node {
+fn parseWhile(self: *Self) ParseError!*const tree.Node {
     const start = self.consume(.while_kw) orelse return self.badToken(error.UnexpectedToken);
 
     _ = self.consume(.left_paren) orelse return self.badToken(error.MissingParen);
@@ -434,47 +434,47 @@ fn parseWhile(self: *Self) ParseError!*tree.Node {
     });
 }
 
-fn parseLogicalOr(self: *Self) ParseError!*tree.Node {
+fn parseLogicalOr(self: *Self) ParseError!*const tree.Node {
     return self.parseBinaryOperand(&[_]Token.Kind{.pipe_pipe}, &parseLogicalAnd);
 }
 
-fn parseLogicalAnd(self: *Self) ParseError!*tree.Node {
+fn parseLogicalAnd(self: *Self) ParseError!*const tree.Node {
     return self.parseBinaryOperand(&[_]Token.Kind{.ampersand_ampersand}, &parseBitor);
 }
 
-fn parseBitor(self: *Self) ParseError!*tree.Node {
+fn parseBitor(self: *Self) ParseError!*const tree.Node {
     return self.parseBinaryOperand(&[_]Token.Kind{.pipe}, &parseXor);
 }
 
-fn parseXor(self: *Self) ParseError!*tree.Node {
+fn parseXor(self: *Self) ParseError!*const tree.Node {
     return self.parseBinaryOperand(&[_]Token.Kind{.caret}, &parseBitand);
 }
 
-fn parseBitand(self: *Self) ParseError!*tree.Node {
+fn parseBitand(self: *Self) ParseError!*const tree.Node {
     return self.parseBinaryOperand(&[_]Token.Kind{.ampersand}, &parseEquality);
 }
 
-fn parseEquality(self: *Self) ParseError!*tree.Node {
+fn parseEquality(self: *Self) ParseError!*const tree.Node {
     return self.parseBinaryOperand(&[_]Token.Kind{ .equal_equal, .bang_equal }, &parseRelational);
 }
 
-fn parseRelational(self: *Self) ParseError!*tree.Node {
+fn parseRelational(self: *Self) ParseError!*const tree.Node {
     return self.parseBinaryOperand(&[_]Token.Kind{ .lt, .gt, .lt_equal, .gt_equal }, &parseShift);
 }
 
-fn parseShift(self: *Self) ParseError!*tree.Node {
+fn parseShift(self: *Self) ParseError!*const tree.Node {
     return self.parseBinaryOperand(&[_]Token.Kind{ .lt_lt, .gt_gt }, &parseTerm);
 }
 
-fn parseTerm(self: *Self) ParseError!*tree.Node {
+fn parseTerm(self: *Self) ParseError!*const tree.Node {
     return self.parseBinaryOperand(&[_]Token.Kind{ .plus, .minus }, &parseFactor);
 }
 
-fn parseFactor(self: *Self) ParseError!*tree.Node {
+fn parseFactor(self: *Self) ParseError!*const tree.Node {
     return self.parseBinaryOperand(&[_]Token.Kind{ .star, .slash, .percent }, &parseUnary);
 }
 
-fn parseUnary(self: *Self) ParseError!*tree.Node {
+fn parseUnary(self: *Self) ParseError!*const tree.Node {
     if (self.consume(.minus)) |tok| {
         const number = try self.parseUnary();
         return self.allocNode(tree.Node{ .unary_op = .{ .op = tok, .right = number } });
@@ -491,7 +491,7 @@ fn parseUnary(self: *Self) ParseError!*tree.Node {
     return self.parsePrimary();
 }
 
-fn parsePrimary(self: *Self) ParseError!*tree.Node {
+fn parsePrimary(self: *Self) ParseError!*const tree.Node {
     if (self.consume(.left_paren)) |_| {
         const expr = try self.parseExpression();
         if (self.consume(.right_paren)) |_| {
@@ -520,6 +520,17 @@ fn parsePrimary(self: *Self) ParseError!*tree.Node {
         return self.parseString(tok, true);
     }
     if (self.consume(.identifier)) |tok| {
+        if (self.consume(.left_paren)) |_| {
+            if (self.consume(.right_paren)) |end| {
+                return self.allocNode(tree.Node{ .call = .{ .callee = tok, .args = &.{}, .end = end } });
+            }
+
+            const args = try self.parseArguments();
+            const end = self.consume(.right_paren) orelse return error.MissingParen;
+            return self.allocNode(tree.Node{ .call = .{ .callee = tok, .args = args, .end = end } });
+        } else {
+            return self.allocNode(tree.Node{ .identifier = tok });
+        }
         return self.allocNode(tree.Node{ .identifier = tok });
     }
 
@@ -533,7 +544,19 @@ fn parsePrimary(self: *Self) ParseError!*tree.Node {
     return error.ExpectedStatement;
 }
 
-fn parseString(self: *Self, tok: Token, is_char: bool) ParseError!*tree.Node {
+fn parseArguments(self: *Self) ParseError![]const *const tree.Node {
+    var args = std.ArrayList(*const tree.Node).init(self.node_allocator);
+    errdefer args.deinit();
+    while (true) {
+        const arg = try self.parseExpression();
+        try args.append(arg);
+        if (self.consume(.comma)) |_| continue;
+        break;
+    }
+    return args.toOwnedSlice();
+}
+
+fn parseString(self: *Self, tok: Token, is_char: bool) ParseError!*const tree.Node {
     std.debug.assert(tok.kind == .string or tok.kind == .character);
 
     const str_raw = tok.lexeme[1 .. tok.lexeme.len - 1]; // remove quotes
@@ -616,7 +639,7 @@ fn parseString(self: *Self, tok: Token, is_char: bool) ParseError!*tree.Node {
     }
 }
 
-fn parseFunction(self: *Self) ParseError!*tree.Node {
+fn parseFunction(self: *Self) ParseError!*const tree.Node {
     const start = self.consume(.func_kw) orelse return self.badToken(error.UnexpectedToken);
 
     const identifier = self.consume(.identifier) orelse return self.badToken(error.ExpectedIdentifier);

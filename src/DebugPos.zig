@@ -14,10 +14,10 @@ column: u32 = 0,
 multi_line: bool = false,
 
 pub fn format(self: Self, comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
-    const is_multi_line_file = std.mem.containsAtLeastScalar(u8, self.orginal_buffer, 1, '\n');
     // PLEASE NOTE LINE CAN BE MULTIPLE LINES
     // first step: find the start of the line need
-    const start_line = std.mem.lastIndexOfScalar(u8, self.orginal_buffer[0..self.start], '\n') orelse 0;
+    var start_line = std.mem.lastIndexOfScalar(u8, self.orginal_buffer[0..self.start], '\n') orelse 0;
+    if (start_line != 0) start_line += 1; // ignore newline
 
     // second step: find the end of the line need
     const end_line = std.mem.indexOfScalar(u8, self.orginal_buffer[self.end..], '\n') orelse self.orginal_buffer.len;
@@ -65,9 +65,11 @@ pub fn format(self: Self, comptime _: []const u8, _: std.fmt.FormatOptions, writ
             try writer.writeByteNTimes('^', width);
         }
     } else {
+        const trimmed_line = std.mem.trim(u8, line, " \t");
+        // get how many spaced we trim at start
+        const trim_start = line.len - trimmed_line.len;
         const width: usize = self.end - self.start;
-        const offset_min: usize = if (is_multi_line_file) 1 else 0;
-        const offset: usize = self.start - start_line -| offset_min;
+        const offset: usize = self.start - start_line - trim_start;
 
         try writer.print("{s}\n", .{line});
         if (!self.multi_line) {

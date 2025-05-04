@@ -147,7 +147,7 @@ pub const String = struct {
 pub const Function = struct {
     name: []const u8,
     params: []const tree.FuncParam,
-    body: *tree.Node, // root node to execute
+    body: *const tree.Node, // root node to execute
     return_type: TypeVal,
     return_type_pos: ?Pos = null, // debug pos, might be usefull but not needed
 
@@ -155,8 +155,10 @@ pub const Function = struct {
         var symbols = SymbolTable.init(base.allocator);
         defer symbols.deinit();
 
-        const msg = std.fmt.allocPrint(base.allocator, "Expected {d} arguments got {d}\n", .{ self.params.len, args.len }) catch unreachable;
-        if (self.params.len != args.len) return Result.errHeap("Invalid number of arguments", msg, null);
+        if (self.params.len != args.len) {
+            const msg = std.fmt.allocPrint(base.allocator, "Expected {d} arguments got {d}", .{ self.params.len, args.len }) catch unreachable;
+            return Result.errHeap("Invalid number of arguments", msg, null);
+        }
 
         for (self.params, args) |param, arg| {
             const symbol_value = castToSymbolValue(base.allocator, arg, param.type.value.type) catch {
@@ -164,7 +166,7 @@ pub const Function = struct {
                 return Result.errHeap("Invalid cast", msg2, null);
             };
 
-            symbols.add(param.name, SymbolTable.Symbol{ .value = symbol_value, .is_const = true }) catch @panic("out of memory");
+            symbols.add(param.name.lexeme, SymbolTable.Symbol{ .value = symbol_value, .is_const = true }) catch @panic("out of memory");
         }
 
         symbols.parent = base.symbols;
@@ -815,22 +817,22 @@ pub fn getTypeValFromSymbolValue(v: SymbolTable.SymbolValue) !TypeVal {
     };
 }
 
-pub fn checkRuntimeError(value: Value, orgin: *Node) ?Result {
+pub fn checkRuntimeError(value: Value, orgin: *const Node) ?Result {
     if (value == .runtime_error) {
         var err = value.runtime_error;
         if (err.pos == null) err.pos = orgin.getPos();
-        return Result{ .value = value };
+        return Result{ .value = .{ .runtime_error = err } };
     }
     return null;
 }
 
 // returns a runtime error if there is one
-pub fn checkRuntimeErrorOrSignal(result: Result, orgin: *Node) ?Result {
+pub fn checkRuntimeErrorOrSignal(result: Result, orgin: *const Node) ?Result {
     switch (result) {
         .value => |v| if (v == .runtime_error) {
             var err = v.runtime_error;
             if (err.pos == null) err.pos = orgin.getPos();
-            return Result{ .value = v };
+            return Result{ .value = .{ .runtime_error = err } };
         },
         .signal => |s| return Result{ .signal = s },
     }

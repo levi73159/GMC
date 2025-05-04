@@ -28,6 +28,7 @@ pub const Node = union(enum) {
     continuestmt: Token,
     whilestmt: WhileStmt,
     function_decl: FunctionDecl,
+    call: Call,
 
     pub fn getLeftPos(self: Node) ?DebugPos {
         return switch (self) {
@@ -50,6 +51,7 @@ pub const Node = union(enum) {
             .continuestmt => |c| c.pos,
             .whilestmt => |w| w.start.pos,
             .function_decl => |f| f.start.pos,
+            .call => |c| c.callee.pos,
         };
     }
 
@@ -74,6 +76,7 @@ pub const Node = union(enum) {
             .continuestmt => |c| c.pos,
             .whilestmt => |w| w.body.getRightPos(),
             .function_decl => |f| f.body.getRightPos(),
+            .call => |c| c.end.pos,
         };
     }
 
@@ -101,6 +104,7 @@ pub const Node = union(enum) {
             .continuestmt => {},
             .whilestmt => |w| w.deinit(),
             .function_decl => |f| f.deinit(),
+            .call => |c| c.deinit(),
         }
     }
 };
@@ -137,7 +141,7 @@ pub const String = struct {
 
 pub const Block = struct {
     start: Token,
-    nodes: []const *Node,
+    nodes: []const *const Node,
     end: Token,
 
     pub fn deinit(self: Block) void {
@@ -146,9 +150,9 @@ pub const Block = struct {
 };
 
 pub const BinOp = struct {
-    left: *Node,
+    left: *const Node,
     op: Token,
-    right: *Node,
+    right: *const Node,
 
     pub fn deinit(self: BinOp) void {
         self.left.deinit();
@@ -158,7 +162,7 @@ pub const BinOp = struct {
 
 pub const UnaryOp = struct {
     op: Token,
-    right: *Node,
+    right: *const Node,
 
     pub fn deinit(self: UnaryOp) void {
         self.right.deinit();
@@ -169,7 +173,7 @@ pub const VariableDecl = struct {
     is_const: BaseType(bool),
     type: Token,
     identifier: Token,
-    value: ?*Node,
+    value: ?*const Node,
 
     pub fn deinit(self: VariableDecl) void {
         if (self.value) |value| value.deinit();
@@ -178,7 +182,7 @@ pub const VariableDecl = struct {
 
 pub const VariableAssign = struct {
     identifier: Token,
-    value: *Node,
+    value: *const Node,
 
     pub fn deinit(self: VariableAssign) void {
         self.value.deinit();
@@ -197,9 +201,9 @@ fn blocklessCheck(node: Node) bool {
 
 pub const IfStmt = struct {
     start: Token, // aka the if keyword token
-    condition: *Node,
-    then: *Node, // block or single expression
-    else_node: ?*Node,
+    condition: *const Node,
+    then: *const Node, // block or single expression
+    else_node: ?*const Node,
 
     pub fn isBlockless(self: IfStmt) bool {
         if (self.else_node) |else_node| {
@@ -217,11 +221,11 @@ pub const IfStmt = struct {
 
 pub const ForStmt = struct {
     start: Token,
-    start_statement: *Node,
-    condition: *Node,
-    every_iteration: *Node,
-    body: *Node,
-    else_node: ?*Node,
+    start_statement: *const Node,
+    condition: *const Node,
+    every_iteration: *const Node,
+    body: *const Node,
+    else_node: ?*const Node,
 
     pub fn isBlockless(self: ForStmt) bool {
         if (self.else_node) |else_node| {
@@ -241,7 +245,7 @@ pub const ForStmt = struct {
 
 pub const BreakStmt = struct {
     start: Token,
-    value: ?*Node,
+    value: ?*const Node,
 
     pub fn deinit(self: BreakStmt) void {
         if (self.value) |value| value.deinit();
@@ -250,8 +254,8 @@ pub const BreakStmt = struct {
 
 pub const WhileStmt = struct {
     start: Token,
-    condition: *Node,
-    body: *Node,
+    condition: *const Node,
+    body: *const Node,
 
     pub fn isBlockless(self: WhileStmt) bool {
         return blocklessCheck(self.body.*);
@@ -273,9 +277,19 @@ pub const FunctionDecl = struct {
     identifier: Token,
     params: []const FuncParam,
     ret_type: Token,
-    body: *Node,
+    body: *const Node,
 
     pub fn deinit(self: FunctionDecl) void {
         self.body.deinit();
+    }
+};
+
+pub const Call = struct {
+    callee: Token,
+    args: []const *const Node,
+    end: Token,
+
+    pub fn deinit(self: Call) void {
+        for (self.args) |arg| arg.deinit();
     }
 };
