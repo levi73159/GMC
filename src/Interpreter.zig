@@ -17,9 +17,19 @@ const Self = @This();
 allocator: std.mem.Allocator,
 symbols: *SymbolTable,
 heap_str_only: bool = false,
+static: bool = false,
 
 pub fn init(allocator: std.mem.Allocator, symbols: *SymbolTable) Self {
     return Self{ .allocator = allocator, .symbols = symbols };
+}
+
+pub fn newScope(self: Self, symbols: *SymbolTable, allocator: std.mem.Allocator) Self {
+    return Self{
+        .allocator = allocator,
+        .static = self.static,
+        .symbols = symbols,
+        .heap_str_only = self.heap_str_only,
+    };
 }
 
 pub fn eval(self: Self, nodes: []const *const Node) void {
@@ -73,7 +83,22 @@ pub fn evalNode(self: Self, node: *const Node) rt.Result {
         .continuestmt => rt.Result.sig(.@"continue"),
         .function_decl => self.evalFunctionDecl(node),
         .call => self.evalCall(node),
+        .returnstmt => self.evalReturn(node),
     };
+}
+
+fn staticEval(self: Self, node: *const Node) rt.Result {
+    var arena = std.heap.ArenaAllocator.init(self.allocator);
+    defer arena.deinit();
+
+    var symbols = SymbolTable.init(arena.allocator());
+    symbols.parent = self.symbols;
+    defer symbols.deinit();
+
+    var interpreter = self.newScope(&symbols, arena.allocator());
+    interpreter.static = true;
+
+    return interpreter.evalNode(node);
 }
 
 fn evalBlock(self: Self, og_node: *const Node) rt.Result {
@@ -85,12 +110,13 @@ fn evalBlock(self: Self, og_node: *const Node) rt.Result {
     defer symbols.deinit();
 
     symbols.parent = self.symbols;
-    var interpreter = Self{ .symbols = &symbols, .allocator = block_allocator };
+    var interpreter = self.newScope(&symbols, self.allocator);
 
     var last_value: rt.Result = rt.Result.none();
     for (og_node.block.nodes) |node| {
         last_value = interpreter.evalNode(node);
-        if (checkRuntimeErrorOrSignal(last_value, node)) |sigOrErr| return sigOrErr;
+        if (checkRuntimeErrorOrSignal(last_value, node)) |err| return err;
+        last_value.value.deinit(self.allocator);
     }
     return last_value;
 }
@@ -206,6 +232,7 @@ fn evalVarAssign(self: Self, og_node: *const Node) rt.Result {
     const old_symbol = self.symbols.get(node.identifier.lexeme) orelse {
         return rt.Result.err("Symbol not found", "The symbol was not found", node.identifier.pos);
     };
+    if (self.static) return rt.Result.val(rt.castToValue(old_symbol.value));
     const ty = rt.getTypeValFromSymbolValue(old_symbol.value) catch {
         return rt.Result.err("Invalid Cast", "Can't convert the value into the type", og_node.getPos());
     };
@@ -254,7 +281,7 @@ fn evalForStmt(self: Self, og_node: *const Node) rt.Result {
     symbols.parent = self.symbols;
     defer symbols.deinit();
 
-    const outer_scope = Self{ .symbols = &symbols, .allocator = self.allocator };
+    const outer_scope = self.newScope(&symbols, self.allocator);
     const start = outer_scope.evalNode(node.start_statement); // evaluate start node
     if (checkRuntimeErrorOrSignal(start, node.start_statement)) |err| return err;
 
@@ -275,13 +302,14 @@ fn evalForStmt(self: Self, og_node: *const Node) rt.Result {
         inner_symbols.parent = &symbols;
         defer inner_symbols.deinit();
 
-        const inner_scope = Self{ .symbols = &inner_symbols, .allocator = self.allocator };
+        const inner_scope = self.newScope(&inner_symbols, self.allocator);
 
         const body = inner_scope.evalNode(node.body);
         if (checkRuntimeErrorOrSignal(body, node.body)) |sigOrErr| switch (sigOrErr) {
             .signal => |signal| switch (signal) {
                 .@"break" => |v| return rt.Result.val(v),
                 .@"continue" => {},
+                else => return sigOrErr,
             },
             else => return sigOrErr,
         };
@@ -316,6 +344,7 @@ fn evalWhileStmt(self: Self, og_node: *const Node) rt.Result {
             .signal => |signal| switch (signal) {
                 .@"break" => |v| return rt.Result.val(v),
                 .@"continue" => {},
+                else => return sigOrErr,
             },
             else => return sigOrErr,
         };
@@ -347,6 +376,7 @@ fn evalBreak(self: Self, og_node: *const Node) rt.Result {
 
 fn evalString(self: Self, og_node: *const Node) rt.Result {
     const node = og_node.string;
+    defer if (!self.static) node.deinit();
     return rt.Result.val(rt.Value.str(node, self.heap_str_only, self.allocator) catch @panic("OUT OF MEMORY"));
 }
 
@@ -360,15 +390,26 @@ fn evalFunctionDecl(self: Self, og_node: *const Node) rt.Result {
     const node = og_node.function_decl;
     std.debug.assert(node.ret_type.value == .type); // safety check
 
+    const function = rt.Function{
+        .name = node.identifier.lexeme,
+        .params = node.params,
+        .body = node.body,
+        .return_type = node.ret_type.value.type,
+        .parent_scope = self.symbols,
+        // debug pos
+        .name_pos = node.identifier.pos,
+        .return_type_pos = node.ret_type.pos,
+    };
+
+    if (function.staticCheck(self)) |sigOrErr| switch (sigOrErr) {
+        .signal => return rt.Result.err("Static Error", "unhandled signal", node.identifier.pos),
+        else => return sigOrErr,
+    };
+
+    // check if return type matches function body
     self.symbols.add(node.identifier.lexeme, SymbolTable.Symbol{
         .is_const = true, // functions are always const
-        .value = .{ .func = .{
-            .name = node.identifier.lexeme,
-            .params = node.params,
-            .body = node.body,
-            .return_type = node.ret_type.value.type,
-            .return_type_pos = node.ret_type.pos,
-        } },
+        .value = .{ .func = function },
     }) catch |err| switch (err) {
         error.OutOfMemory => std.debug.panic("OUT OF MEMORY!!!", .{}),
         error.SymbolAlreadyExists => return rt.Result.err("Symbol already exists", "The symbol already exists", node.identifier.pos),
@@ -395,9 +436,41 @@ fn evalCall(self: Self, og_node: *const Node) rt.Result {
             const args = args_buf[0..args_index];
 
             const ret = func.call(args, self);
-            if (checkRuntimeErrorOrSignal(ret, og_node)) |err| return err;
-            return ret;
+            if (checkRuntimeErrorOrSignal(ret, og_node)) |sigOrErr| switch (sigOrErr) {
+                .signal => |signal| switch (signal) {
+                    .@"return" => |v| {
+                        // cast v to return type then back into a value
+                        const typed_value = rt.castToSymbolValue(self.allocator, v, func.return_type) catch {
+                            const msg = std.fmt.allocPrint(self.allocator, "Function return an expected type, Expected {s} got {s}", .{ @tagName(func.return_type), @tagName(ret.value) }) catch unreachable;
+                            return rt.Result.errHeap("Invalid return type", msg, func.return_type_pos);
+                        };
+                        const value = rt.castToValue(typed_value);
+                        value.deinit(self.allocator); // free memory since were cloning a heap value
+                        return rt.Result.val(v);
+                    },
+                    else => return rt.Result.err("Unexpected signal", "The function resulted in an unexpected signal", func.name_pos),
+                },
+                else => return sigOrErr,
+            };
+            if (func.return_type != .void) {
+                const msg = std.fmt.allocPrint(self.allocator, "Function return an expected type, Expected {s} got void", .{@tagName(func.return_type)}) catch unreachable;
+                return rt.Result.errHeap("Invalid return type", msg, func.return_type_pos);
+            }
+            return rt.Result.none();
         },
         else => return rt.Result.err("Not a function", "The symbol is not a function", node.callee.pos),
     }
+}
+
+fn evalReturn(self: Self, og_node: *const Node) rt.Result {
+    const node = og_node.returnstmt;
+    if (node.value) |val_node| {
+        const result = self.evalNode(val_node);
+        if (checkRuntimeErrorOrSignal(result, og_node)) |err| return err;
+        const value = result.value;
+
+        return rt.Result.sig(.{ .@"return" = value });
+    }
+
+    return rt.Result.sig(.{ .@"return" = .none });
 }

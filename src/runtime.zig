@@ -9,6 +9,7 @@ const Intrepreter = @import("Interpreter.zig");
 const Params = tree.FuncParam;
 
 pub const Signal = union(enum) {
+    @"return": Value,
     @"break": Value,
     @"continue": void,
 };
@@ -48,7 +49,7 @@ pub const String = struct {
     pub fn deinit(self: String) void {
         switch (self.mem_type) {
             .heap => |h| {
-                h.refs -= 1;
+                h.refs -|= 1;
                 if (h.refs == 0) {
                     self.allocator.free(self.value);
                     self.allocator.destroy(h);
@@ -60,8 +61,8 @@ pub const String = struct {
 
     pub fn clone(self: String) String {
         return String{ .value = self.value, .mem_type = switch (self.mem_type) {
-            .heap => blk: {
-                const inner = self.mem_type.heap;
+            .heap => |heap| blk: {
+                const inner = heap;
                 inner.refs += 1;
                 break :blk .{ .heap = inner };
             },
@@ -149,7 +150,11 @@ pub const Function = struct {
     params: []const tree.FuncParam,
     body: *const tree.Node, // root node to execute
     return_type: TypeVal,
-    return_type_pos: ?Pos = null, // debug pos, might be usefull but not needed
+    parent_scope: ?*SymbolTable,
+
+    // debug pos, might be usefull but not needed
+    name_pos: ?Pos = null,
+    return_type_pos: ?Pos = null,
 
     pub fn call(self: Function, args: []const Value, base: Intrepreter) Result {
         var symbols = SymbolTable.init(base.allocator);
@@ -168,17 +173,60 @@ pub const Function = struct {
 
             symbols.add(param.name.lexeme, SymbolTable.Symbol{ .value = symbol_value, .is_const = true }) catch @panic("out of memory");
         }
+        // setting scope heres mean that if there is a param x and a varaible x outside of the function it will be shadowed by the Params
+        // if we don't wan't that and want it to cause an error we can put this line before we add the params
+        symbols.parent = self.parent_scope;
 
-        symbols.parent = base.symbols;
-        const scope = Intrepreter{
-            .allocator = base.allocator,
-            .symbols = &symbols,
-            .heap_str_only = base.heap_str_only,
-        };
-
+        const scope = base.newScope(&symbols, base.allocator);
         const ret = scope.evalNode(self.body);
         if (checkRuntimeErrorOrSignal(ret, self.body)) |err| return err;
         return ret;
+    }
+
+    // not the best but get the job done
+    pub fn staticCheck(self: Function, base: Intrepreter) ?Result {
+        var arena = std.heap.ArenaAllocator.init(base.allocator);
+        defer arena.deinit();
+
+        const allocator = arena.allocator();
+
+        var symbols = SymbolTable.init(allocator);
+        defer symbols.deinit();
+
+        for (self.params) |param| {
+            const symbol_value = castToSymbolValue(base.allocator, Value.none, param.type.value.type) catch {
+                const msg2 = std.fmt.allocPrint(base.allocator, "Can't cast {s} to {s}", .{ @tagName(Value.none), @tagName(param.type.value.type) }) catch unreachable;
+                return Result.errHeap("Invalid cast", msg2, null);
+            };
+
+            symbols.add(param.name.lexeme, SymbolTable.Symbol{ .value = symbol_value, .is_const = true }) catch @panic("out of memory");
+        }
+
+        symbols.parent = self.parent_scope;
+
+        var scope = base.newScope(&symbols, allocator);
+        scope.static = true;
+        const ret = scope.evalNode(self.body);
+        if (checkRuntimeErrorOrSignal(ret, self.body)) |sigOrErr| switch (sigOrErr) {
+            .signal => |signal| switch (signal) {
+                .@"return" => |v| {
+                    _ = castToSymbolValue(allocator, v, self.return_type) catch {
+                        const msg = std.fmt.allocPrint(base.allocator, "Function return an expected type, Expected {s} got {s}", .{ @tagName(self.return_type), @tagName(ret.value) }) catch unreachable;
+                        return Result.errHeap("Invalid return type", msg, self.return_type_pos);
+                    };
+                    // we can cast the value
+                    return null;
+                },
+                else => return sigOrErr,
+            },
+            else => return sigOrErr,
+        };
+
+        if (self.return_type != .void) {
+            const msg = std.fmt.allocPrint(base.allocator, "Function return an expected type, Expected {s} got void", .{@tagName(self.return_type)}) catch unreachable;
+            return Result.errHeap("Invalid return type", msg, self.return_type_pos);
+        }
+        return null;
     }
 };
 
@@ -206,7 +254,6 @@ pub const Value = union(enum) {
     }
 
     pub fn str(node: tree.String, force_heap: bool, allocator: std.mem.Allocator) !Value {
-        defer node.deinit(); // deinit the string
         if (force_heap) {
             const inner = try allocator.create(String.Inner);
             inner.* = String.Inner{ .refs = 1 };
@@ -250,6 +297,13 @@ pub const Value = union(enum) {
             .runtime_error => |e| e.deinit(allocator),
             else => {},
         }
+    }
+
+    pub fn removeRef(self: Value) Value {
+        return switch (self) {
+            .string => |s| Value{ .string = s.removeRefs() },
+            else => self,
+        };
     }
 
     pub fn err(msg: []const u8, extra: []const u8, pos: ?Pos) Value {

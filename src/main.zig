@@ -159,7 +159,7 @@ fn runFile(dbg: std.mem.Allocator, file: std.fs.File) !void {
 
     var symbols = SymbolTable.init(dbg);
     defer symbols.deinit();
-    run(contents, allocator, dbg, &symbols, true);
+    run(contents, allocator, dbg, &symbols, false);
 }
 
 fn run(text: []const u8, allocator: std.mem.Allocator, dbg_allocator: std.mem.Allocator, symbols: *SymbolTable, force_heap: bool) void {

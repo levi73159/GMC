@@ -24,7 +24,9 @@ pub const SymbolValue = union(enum) {
 
     pub fn deinit(self: SymbolValue) void {
         switch (self) {
-            .string => |s| s.deinit(),
+            .string => |s| {
+                s.deinit();
+            },
             else => {},
         }
     }

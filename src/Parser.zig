@@ -215,6 +215,14 @@ fn parseStatement(self: *Self) ParseError!*const tree.Node {
         }
         return error.ExpectedSemicolon;
     }
+    if (self.consume(.return_kw)) |st| {
+        if (self.consume(.semicolon)) |_| {
+            return self.allocNode(tree.Node{ .returnstmt = .{ .start = st, .value = null } });
+        }
+
+        const value = try self.parseExprWithSemicolon();
+        return self.allocNode(tree.Node{ .returnstmt = .{ .start = st, .value = value } });
+    }
     return self.parseExprWithSemicolon();
 }
 
@@ -645,6 +653,20 @@ fn parseFunction(self: *Self) ParseError!*const tree.Node {
     const identifier = self.consume(.identifier) orelse return self.badToken(error.ExpectedIdentifier);
 
     _ = self.consume(.left_paren) orelse return self.badToken(error.MissingParen);
+
+    if (self.consume(.right_paren)) |_| {
+        const ret_type = self.consume(.type) orelse return self.badToken(error.ExpectedType);
+        const body = try self.parseBlock();
+        return self.allocNode(tree.Node{
+            .function_decl = .{
+                .start = start,
+                .identifier = identifier,
+                .params = &.{},
+                .ret_type = ret_type,
+                .body = body,
+            },
+        });
+    }
 
     var params = std.ArrayList(tree.FuncParam).init(self.node_allocator);
     errdefer params.deinit();

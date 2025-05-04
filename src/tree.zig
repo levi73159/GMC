@@ -29,6 +29,7 @@ pub const Node = union(enum) {
     whilestmt: WhileStmt,
     function_decl: FunctionDecl,
     call: Call,
+    returnstmt: ReturnStmt,
 
     pub fn getLeftPos(self: Node) ?DebugPos {
         return switch (self) {
@@ -52,6 +53,7 @@ pub const Node = union(enum) {
             .whilestmt => |w| w.start.pos,
             .function_decl => |f| f.start.pos,
             .call => |c| c.callee.pos,
+            .returnstmt => |r| r.start.pos,
         };
     }
 
@@ -77,6 +79,7 @@ pub const Node = union(enum) {
             .whilestmt => |w| w.body.getRightPos(),
             .function_decl => |f| f.body.getRightPos(),
             .call => |c| c.end.pos,
+            .returnstmt => |r| if (r.value) |value| value.getRightPos() else r.start.pos,
         };
     }
 
@@ -105,6 +108,7 @@ pub const Node = union(enum) {
             .whilestmt => |w| w.deinit(),
             .function_decl => |f| f.deinit(),
             .call => |c| c.deinit(),
+            .returnstmt => |r| r.deinit(),
         }
     }
 };
@@ -291,5 +295,14 @@ pub const Call = struct {
 
     pub fn deinit(self: Call) void {
         for (self.args) |arg| arg.deinit();
+    }
+};
+
+pub const ReturnStmt = struct {
+    start: Token,
+    value: ?*const Node,
+
+    pub fn deinit(self: ReturnStmt) void {
+        if (self.value) |value| value.deinit();
     }
 };

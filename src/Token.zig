@@ -61,6 +61,7 @@ pub const Kind = enum {
     while_kw,
     break_kw,
     continue_kw,
+    return_kw,
 
     pub fn getKeyword(lexeme: []const u8) ?Kind {
         var buf: [2555]u8 = undefined;
