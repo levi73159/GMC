@@ -235,6 +235,7 @@ pub const BaseFunction = struct {
             const msg = std.fmt.allocPrint(base.allocator, "Function return an expected type, Expected {s} got void", .{@tagName(self.return_type)}) catch unreachable;
             return Result.errHeap("Invalid return type", msg, self.return_type_pos);
         }
+
         return null;
     }
 };

@@ -1,0 +1,2 @@
+const int x = toInt("32");
+print(x);

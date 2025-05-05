@@ -111,3 +111,35 @@ pub fn toString(args: []const rt.Value, base: Interpreter) rt.Result {
     const string = rt.String.init(base.allocator, base_string, true) catch unreachable;
     return val(.{ .string = string });
 }
+
+pub fn toInt(args: []const rt.Value, base: Interpreter) rt.Result {
+    defer end(args, base);
+
+    if (args.len == 0) return val(.{ .integer = 0 });
+    if (args.len != 1) return err("toInt", "Expected 1 argument");
+
+    const arg = args[0];
+    if (arg != .string) return err("toInt", "Expected string. Please use asInt to cast a value to int");
+
+    const str = arg.string;
+    const int = std.fmt.parseInt(i65, str.value, 10) catch {
+        return errHeap(base.allocator, "Invalid Cast", "Can't cast \"{s}\" to int", .{str.value});
+    };
+    return val(.{ .integer = int });
+}
+
+pub fn toFloat(args: []const rt.Value, base: Interpreter) rt.Result {
+    defer end(args, base);
+
+    if (args.len == 0) return val(.{ .float = 0 });
+    if (args.len != 1) return err("toFloat", "Expected 1 argument");
+
+    const arg = args[0];
+    if (arg != .string) return err("toFloat", "Expected string. Please use asFloat to cast a value to float");
+
+    const str = arg.string;
+    const float = std.fmt.parseFloat(f64, str.value) catch {
+        return errHeap(base.allocator, "Invalid Cast", "Can't cast \"{s}\" to float", .{str.value});
+    };
+    return val(.{ .float = float });
+}
