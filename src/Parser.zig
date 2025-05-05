@@ -264,6 +264,8 @@ fn parseExpression(self: *Self) ParseError!*const tree.Node {
     if (self.match(.for_kw)) return self.parseFor(true);
     if (self.match(.while_kw)) return self.parseWhile();
 
+    if (self.match(.left_bracket)) return self.parseArray();
+
     return self.parseLogicalOr();
 }
 
@@ -694,6 +696,28 @@ fn parseFunction(self: *Self) ParseError!*const tree.Node {
             .params = try params.toOwnedSlice(),
             .ret_type = ret_type,
             .body = body,
+        },
+    });
+}
+
+fn parseArray(self: *Self) ParseError!*const tree.Node {
+    const start = self.consume(.left_bracket) orelse return self.badToken(error.MissingLeftBracket);
+
+    var elements = std.ArrayList(*const tree.Node).init(self.node_allocator);
+    errdefer elements.deinit();
+
+    while (self.current() != null and !self.match(.right_bracket)) {
+        try elements.append(try self.parseExpression());
+        if (self.consume(.comma)) |_| {} else break;
+    }
+
+    const end = self.consume(.right_bracket) orelse return self.badToken(error.MissingRightBracket);
+
+    return self.allocNode(tree.Node{
+        .array = .{
+            .start = start,
+            .elements = try elements.toOwnedSlice(),
+            .end = end,
         },
     });
 }

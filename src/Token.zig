@@ -9,6 +9,8 @@ pub const Kind = enum {
     right_paren,
     left_curly_bracket,
     right_curly_bracket,
+    left_bracket,
+    right_bracket,
 
     plus,
     minus,

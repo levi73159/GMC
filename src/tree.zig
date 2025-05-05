@@ -30,6 +30,7 @@ pub const Node = union(enum) {
     function_decl: FunctionDecl,
     call: Call,
     returnstmt: ReturnStmt,
+    array: Array,
 
     pub fn getLeftPos(self: Node) ?DebugPos {
         return switch (self) {
@@ -54,6 +55,7 @@ pub const Node = union(enum) {
             .function_decl => |f| f.start.pos,
             .call => |c| c.callee.pos,
             .returnstmt => |r| r.start.pos,
+            .array => |a| a.start.pos,
         };
     }
 
@@ -80,6 +82,7 @@ pub const Node = union(enum) {
             .function_decl => |f| f.body.getRightPos(),
             .call => |c| c.end.pos,
             .returnstmt => |r| if (r.value) |value| value.getRightPos() else r.start.pos,
+            .array => |a| a.end.pos,
         };
     }
 
@@ -109,6 +112,7 @@ pub const Node = union(enum) {
             .function_decl => |f| f.deinit(),
             .call => |c| c.deinit(),
             .returnstmt => |r| r.deinit(),
+            .array => |a| a.deinit(),
         }
     }
 };
@@ -304,5 +308,15 @@ pub const ReturnStmt = struct {
 
     pub fn deinit(self: ReturnStmt) void {
         if (self.value) |value| value.deinit();
+    }
+};
+
+pub const Array = struct {
+    start: Token,
+    elements: []const *const Node,
+    end: Token,
+
+    pub fn deinit(self: Array) void {
+        for (self.elements) |element| element.deinit();
     }
 };
