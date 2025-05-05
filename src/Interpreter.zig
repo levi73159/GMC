@@ -438,6 +438,7 @@ fn handleFunctionResult(self: Self, func: rt.Function, result: rt.Result, og_nod
                     return rt.Result.val(v);
                 },
                 .bultin => {
+                    if (checkRuntimeErrorOrSignal(result, og_node)) |err| return err;
                     return result;
                 },
             },
@@ -445,11 +446,19 @@ fn handleFunctionResult(self: Self, func: rt.Function, result: rt.Result, og_nod
         },
         else => return sigOrErr,
     };
-    if (func == .base and func.base.return_type != .void) {
-        const msg = std.fmt.allocPrint(self.allocator, "Function return an expected type, Expected {s} got void", .{@tagName(func.base.return_type)}) catch unreachable;
-        return rt.Result.errHeap("Invalid return type", msg, func.base.return_type_pos);
+    switch (func) {
+        .base => |basef| {
+            if (basef.return_type != .void) {
+                const msg = std.fmt.allocPrint(self.allocator, "Function return an expected type, Expected {s} got void", .{@tagName(func.base.return_type)}) catch unreachable;
+                return rt.Result.errHeap("Invalid return type", msg, func.base.return_type_pos);
+            }
+            return rt.Result.none();
+        },
+        .bultin => {
+            if (checkRuntimeErrorOrSignal(result, og_node)) |err| return err;
+            return result;
+        },
     }
-    return rt.Result.none();
 }
 
 fn evalCall(self: Self, og_node: *const Node) rt.Result {

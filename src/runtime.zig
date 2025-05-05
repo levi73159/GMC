@@ -38,6 +38,15 @@ pub const String = struct {
     },
     allocator: std.mem.Allocator,
 
+    pub fn init(allocator: std.mem.Allocator, value: []const u8, is_heap: bool) !String {
+        if (is_heap) {
+            const inner = try allocator.create(Inner);
+            inner.* = Inner{ .refs = 1 };
+            return String{ .value = value, .mem_type = .{ .heap = inner }, .allocator = allocator };
+        }
+        return String{ .value = value, .mem_type = .stack, .allocator = allocator };
+    }
+
     pub fn fromChar(char: u8, allocator: std.mem.Allocator) String {
         return String{ .value = &[_]u8{char}, .mem_type = .stack, .allocator = allocator };
     }
