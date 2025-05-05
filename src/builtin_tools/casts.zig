@@ -1,7 +1,9 @@
 const std = @import("std");
-const rt = @import("../runtime.zig");
 const Interpreter = @import("../Interpreter.zig");
 const tools = @import("tools.zig");
+
+const rt = @import("../runtime.zig");
+const ty = @import("../types.zig");
 
 const end = tools.end;
 const errHeap = tools.errHeap;
@@ -98,7 +100,7 @@ pub fn toString(args: []const rt.Value, base: Interpreter) rt.Result {
     defer end(args, base);
 
     if (args.len == 0) {
-        return val(.{ .string = rt.String.init(base.allocator, "", false) catch unreachable });
+        return val(.{ .string = ty.String.init(base.allocator, "", false) catch unreachable });
     }
     if (args.len != 1) return err("toString", "Expected 1 argument");
 
@@ -108,7 +110,7 @@ pub fn toString(args: []const rt.Value, base: Interpreter) rt.Result {
     }
 
     const base_string = std.fmt.allocPrint(base.allocator, "{}", .{arg}) catch unreachable;
-    const string = rt.String.init(base.allocator, base_string, true) catch unreachable;
+    const string = ty.String.init(base.allocator, base_string, true) catch unreachable;
     return val(.{ .string = string });
 }
 

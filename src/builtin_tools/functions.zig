@@ -1,8 +1,10 @@
 const std = @import("std");
-const rt = @import("../runtime.zig");
 const Interpreter = @import("../Interpreter.zig");
 const SymbolTable = @import("../SymbolTable.zig");
 const tools = @import("tools.zig");
+
+const rt = @import("../runtime.zig");
+const ty = @import("../types.zig");
 
 const end = tools.end;
 const errHeap = tools.errHeap;
@@ -89,7 +91,7 @@ pub fn len(args: []const rt.Value, base: Interpreter) rt.Result {
 
 pub fn input(args: []const rt.Value, base: Interpreter) rt.Result {
     defer end(args, base);
-    if (base.static) return val(.{ .string = rt.String.init(base.allocator, "", false) catch unreachable }); // not a static function
+    if (base.static) return val(.{ .string = ty.String.init(base.allocator, "", false) catch unreachable }); // not a static function
 
     const stdout = std.io.getStdOut().writer();
     const stdin = std.io.getStdIn().reader();
@@ -99,9 +101,9 @@ pub fn input(args: []const rt.Value, base: Interpreter) rt.Result {
 
     const in = stdin.readUntilDelimiterOrEofAlloc(base.allocator, '\n', 1024) catch |e| return errHeap(base.allocator, "IO Error", "Failed to read from stdin: {s}", .{@errorName(e)});
     if (in) |str| {
-        return val(.{ .string = rt.String.init(base.allocator, str, true) catch unreachable });
+        return val(.{ .string = ty.String.init(base.allocator, str, true) catch unreachable });
     } else {
-        return val(.{ .string = rt.String.init(base.allocator, "", false) catch unreachable });
+        return val(.{ .string = ty.String.init(base.allocator, "", false) catch unreachable });
     }
 
     return none();

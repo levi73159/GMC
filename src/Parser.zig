@@ -701,7 +701,7 @@ fn parseFunction(self: *Self) ParseError!*const tree.Node {
 }
 
 fn parseArray(self: *Self) ParseError!*const tree.Node {
-    const start = self.consume(.left_bracket) orelse return self.badToken(error.MissingLeftBracket);
+    const start = self.consume(.left_bracket) orelse return self.badToken(error.MissingBracket);
 
     var elements = std.ArrayList(*const tree.Node).init(self.node_allocator);
     errdefer elements.deinit();
@@ -711,7 +711,7 @@ fn parseArray(self: *Self) ParseError!*const tree.Node {
         if (self.consume(.comma)) |_| {} else break;
     }
 
-    const end = self.consume(.right_bracket) orelse return self.badToken(error.MissingRightBracket);
+    const end = self.consume(.right_bracket) orelse return self.badToken(error.MissingBracket);
 
     return self.allocNode(tree.Node{
         .array = .{

@@ -1,5 +1,6 @@
 const std = @import("std");
 const rt = @import("runtime.zig");
+const types = @import("types.zig");
 
 const Self = @This();
 
@@ -18,9 +19,9 @@ pub const SymbolValue = union(enum) {
     bool: bool,
     void: void,
 
-    string: rt.String,
+    string: types.String,
     char: u8, // char is another name for u8 but treated like a character instead of a number
-    func: rt.Function,
+    func: types.Function,
 
     pub fn deinit(self: SymbolValue) void {
         switch (self) {

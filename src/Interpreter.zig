@@ -7,6 +7,7 @@ const Node = tree.Node;
 const TypeVal = @import("Token.zig").TypeValue;
 
 const rt = @import("runtime.zig");
+const ty = @import("types.zig");
 
 // common runtime functions for easy access
 const checkRuntimeError = rt.checkRuntimeError;
@@ -100,6 +101,7 @@ pub fn evalNode(self: Self, node: *const Node) rt.Result {
         .function_decl => self.evalFunctionDecl(node),
         .call => self.evalCall(node),
         .returnstmt => self.evalReturn(node),
+        .array => rt.Result.none(),
     };
 }
 
@@ -249,10 +251,10 @@ fn evalVarAssign(self: Self, og_node: *const Node) rt.Result {
         return rt.Result.err("Symbol not found", "The symbol was not found", node.identifier.pos);
     };
     if (self.static) return rt.Result.val(rt.castToValue(old_symbol.value));
-    const ty = rt.getTypeValFromSymbolValue(old_symbol.value) catch {
+    const typeval = rt.getTypeValFromSymbolValue(old_symbol.value) catch {
         return rt.Result.err("Invalid Cast", "Can't convert the value into the type", og_node.getPos());
     };
-    const symval = rt.castToSymbolValue(self.allocator, value, ty) catch {
+    const symval = rt.castToSymbolValue(self.allocator, value, typeval) catch {
         return rt.Result.err("Invalid Cast", "The value can't be converted to the type (could be due to the value is too big or small)", node.value.getPos());
     };
 
@@ -406,7 +408,7 @@ fn evalFunctionDecl(self: Self, og_node: *const Node) rt.Result {
     const node = og_node.function_decl;
     std.debug.assert(node.ret_type.value == .type); // safety check
 
-    const function = rt.BaseFunction{
+    const function = ty.BaseFunction{
         .name = node.identifier.lexeme,
         .params = node.params,
         .body = node.body,
@@ -444,7 +446,7 @@ fn getArgs(self: Self, buf: []rt.Value, args: []const *const Node) union(enum) {
     return .{ .args = buf[0..index] };
 }
 
-fn handleFunctionResult(self: Self, func: rt.Function, result: rt.Result, og_node: *const Node) rt.Result {
+fn handleFunctionResult(self: Self, func: ty.Function, result: rt.Result, og_node: *const Node) rt.Result {
     const pos: ?Pos = switch (func) {
         .base => |f| f.name_pos,
         .bultin => og_node.getPos(),

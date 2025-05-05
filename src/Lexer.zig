@@ -85,8 +85,8 @@ pub fn next(self: *Self) !?Token {
         'a'...'z', 'A'...'Z', '_' => try self.makeIdentifier(),
         '\'' => try self.makeString(true),
         '"' => try self.makeString(false),
-        '[' => try self.initToken(.left_bracket, "["),
-        ']' => try self.initToken(.right_bracket, "]"),
+        '[' => self.initToken(.left_bracket, "["),
+        ']' => self.initToken(.right_bracket, "]"),
         else => return error.InvalidCharacter,
     };
 }
