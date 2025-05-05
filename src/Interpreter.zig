@@ -51,15 +51,7 @@ pub fn eval(self: Self, nodes: []const *const Node) void {
                 }
                 return; // if error in program return instantly
             },
-            .integer => |i| std.debug.print("Result: {}\n", .{i}),
-            .float => |f| std.debug.print("Result: {d}\n", .{f}),
-            .boolean => |b| std.debug.print("Result: {}\n", .{b}),
-            .string => |s| {
-                std.debug.print("Result: {s}\n", .{s.value});
-            },
-            .char => |c| std.debug.print("Result: {c}\n", .{c}),
-            .func => |f| std.debug.print("Result: func {s}\n", .{f.name}),
-            .none => std.debug.print("Result: None\n", .{}),
+            else => {},
         }
     }
 }
@@ -390,7 +382,7 @@ fn evalFunctionDecl(self: Self, og_node: *const Node) rt.Result {
     const node = og_node.function_decl;
     std.debug.assert(node.ret_type.value == .type); // safety check
 
-    const function = rt.Function{
+    const function = rt.BaseFunction{
         .name = node.identifier.lexeme,
         .params = node.params,
         .body = node.body,
@@ -409,12 +401,55 @@ fn evalFunctionDecl(self: Self, og_node: *const Node) rt.Result {
     // check if return type matches function body
     self.symbols.add(node.identifier.lexeme, SymbolTable.Symbol{
         .is_const = true, // functions are always const
-        .value = .{ .func = function },
+        .value = .{ .func = .{ .base = function } },
     }) catch |err| switch (err) {
         error.OutOfMemory => std.debug.panic("OUT OF MEMORY!!!", .{}),
         error.SymbolAlreadyExists => return rt.Result.err("Symbol already exists", "The symbol already exists", node.identifier.pos),
     };
     return rt.Result.none(); // decl function does not return a value
+}
+
+fn getArgs(self: Self, buf: []rt.Value, args: []const *const Node) union(enum) { res: rt.Result, args: []const rt.Value } {
+    var index: usize = 0;
+    for (args) |arg| {
+        const arg_value = self.evalNode(arg);
+        if (checkRuntimeErrorOrSignal(arg_value, arg)) |err| return .{ .res = err };
+        buf[index] = arg_value.value;
+        index += 1;
+    }
+    return .{ .args = buf[0..index] };
+}
+
+fn handleFunctionResult(self: Self, func: rt.Function, result: rt.Result, og_node: *const Node) rt.Result {
+    const pos: ?Pos = switch (func) {
+        .base => |f| f.name_pos,
+        .bultin => og_node.getPos(),
+    };
+    if (checkRuntimeErrorOrSignal(result, og_node)) |sigOrErr| switch (sigOrErr) {
+        .signal => |signal| switch (signal) {
+            .@"return" => |v| switch (func) {
+                .base => |basef| {
+                    const typed_value = rt.castToSymbolValue(self.allocator, v, basef.return_type) catch {
+                        const msg = std.fmt.allocPrint(self.allocator, "Function return an expected type, Expected {s} got {s}", .{ @tagName(basef.return_type), @tagName(result.value) }) catch unreachable;
+                        return rt.Result.errHeap("Invalid return type", msg, basef.return_type_pos);
+                    };
+                    const value = rt.castToValue(typed_value);
+                    value.deinit(self.allocator); // free memory since were cloning a heap value
+                    return rt.Result.val(v);
+                },
+                .bultin => {
+                    return result;
+                },
+            },
+            else => return rt.Result.err("Unexpected signal", "The function resulted in an unexpected signal", pos),
+        },
+        else => return sigOrErr,
+    };
+    if (func == .base and func.base.return_type != .void) {
+        const msg = std.fmt.allocPrint(self.allocator, "Function return an expected type, Expected {s} got void", .{@tagName(func.base.return_type)}) catch unreachable;
+        return rt.Result.errHeap("Invalid return type", msg, func.base.return_type_pos);
+    }
+    return rt.Result.none();
 }
 
 fn evalCall(self: Self, og_node: *const Node) rt.Result {
@@ -426,37 +461,14 @@ fn evalCall(self: Self, og_node: *const Node) rt.Result {
     switch (callee.value) {
         .func => |func| {
             var args_buf: [256]rt.Value = undefined; // 256 is being geneous just in case the user tries to push the limit
-            var args_index: usize = 0;
-            for (node.args) |arg| {
-                const arg_value = self.evalNode(arg);
-                if (checkRuntimeErrorOrSignal(arg_value, arg)) |err| return err; // no error or signal allowed
-                args_buf[args_index] = arg_value.value;
-                args_index += 1;
+            const args_result = self.getArgs(&args_buf, node.args);
+            if (args_result == .res) {
+                return args_result.res;
             }
-            const args = args_buf[0..args_index];
+            const args = args_result.args;
 
             const ret = func.call(args, self);
-            if (checkRuntimeErrorOrSignal(ret, og_node)) |sigOrErr| switch (sigOrErr) {
-                .signal => |signal| switch (signal) {
-                    .@"return" => |v| {
-                        // cast v to return type then back into a value
-                        const typed_value = rt.castToSymbolValue(self.allocator, v, func.return_type) catch {
-                            const msg = std.fmt.allocPrint(self.allocator, "Function return an expected type, Expected {s} got {s}", .{ @tagName(func.return_type), @tagName(ret.value) }) catch unreachable;
-                            return rt.Result.errHeap("Invalid return type", msg, func.return_type_pos);
-                        };
-                        const value = rt.castToValue(typed_value);
-                        value.deinit(self.allocator); // free memory since were cloning a heap value
-                        return rt.Result.val(v);
-                    },
-                    else => return rt.Result.err("Unexpected signal", "The function resulted in an unexpected signal", func.name_pos),
-                },
-                else => return sigOrErr,
-            };
-            if (func.return_type != .void) {
-                const msg = std.fmt.allocPrint(self.allocator, "Function return an expected type, Expected {s} got void", .{@tagName(func.return_type)}) catch unreachable;
-                return rt.Result.errHeap("Invalid return type", msg, func.return_type_pos);
-            }
-            return rt.Result.none();
+            return self.handleFunctionResult(func, ret, og_node);
         },
         else => return rt.Result.err("Not a function", "The symbol is not a function", node.callee.pos),
     }

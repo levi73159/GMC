@@ -5,6 +5,7 @@ const Interpreter = @import("Interpreter.zig");
 const SymbolTable = @import("SymbolTable.zig");
 const Token = @import("Token.zig");
 const Node = @import("tree.zig").Node;
+const builtin = @import("bultin.zig");
 
 fn printTokens(tokens: []const Token) void {
     for (tokens) |token| {
@@ -157,8 +158,9 @@ fn runFile(dbg: std.mem.Allocator, file: std.fs.File) !void {
     const contents = try file.readToEndAlloc(allocator, std.math.maxInt(usize));
     defer allocator.free(contents);
 
-    var symbols = SymbolTable.init(dbg);
+    var symbols = try builtin.initRootSymbols(dbg);
     defer symbols.deinit();
+
     run(contents, allocator, dbg, &symbols, false);
 }
 

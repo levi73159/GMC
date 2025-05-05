@@ -145,7 +145,7 @@ pub const String = struct {
     }
 };
 
-pub const Function = struct {
+pub const BaseFunction = struct {
     name: []const u8,
     params: []const tree.FuncParam,
     body: *const tree.Node, // root node to execute
@@ -156,7 +156,7 @@ pub const Function = struct {
     name_pos: ?Pos = null,
     return_type_pos: ?Pos = null,
 
-    pub fn call(self: Function, args: []const Value, base: Intrepreter) Result {
+    pub fn call(self: BaseFunction, args: []const Value, base: Intrepreter) Result {
         var symbols = SymbolTable.init(base.allocator);
         defer symbols.deinit();
 
@@ -184,7 +184,7 @@ pub const Function = struct {
     }
 
     // not the best but get the job done
-    pub fn staticCheck(self: Function, base: Intrepreter) ?Result {
+    pub fn staticCheck(self: BaseFunction, base: Intrepreter) ?Result {
         var arena = std.heap.ArenaAllocator.init(base.allocator);
         defer arena.deinit();
 
@@ -227,6 +227,34 @@ pub const Function = struct {
             return Result.errHeap("Invalid return type", msg, self.return_type_pos);
         }
         return null;
+    }
+};
+
+pub const BultinFunction = struct {
+    name: []const u8,
+    func: *const fn (args: []const Value, base: Intrepreter) Result,
+
+    pub fn call(self: BultinFunction, args: []const Value, base: Intrepreter) Result {
+        return self.func(args, base);
+    }
+};
+
+pub const Function = union(enum) {
+    base: BaseFunction,
+    bultin: BultinFunction,
+
+    pub fn getName(self: Function) []const u8 {
+        return switch (self) {
+            .base => |f| f.name,
+            .bultin => |f| f.name,
+        };
+    }
+
+    pub fn call(self: Function, args: []const Value, base: Intrepreter) Result {
+        return switch (self) {
+            .base => |f| f.call(args, base),
+            .bultin => |f| f.call(args, base),
+        };
     }
 };
 
@@ -696,6 +724,33 @@ pub const Value = union(enum) {
         std.debug.assert(val == .boolean);
         return Value{ .boolean = !val.boolean };
     }
+
+    pub fn format(
+        self: @This(),
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: std.io.AnyWriter,
+    ) !void {
+        switch (self) {
+            .integer => |i| try writer.print("{}", .{i}),
+            .float => |f| try writer.print("{d}", .{f}),
+            .boolean => |b| try writer.print("{}", .{b}),
+            .char => |c| try writer.print("{c}", .{c}),
+            .none => try writer.print("void", .{}),
+            .runtime_error => |e| {
+                try writer.print("Runtime error: {s}\n", .{e.msg});
+                if (e.extra) |extra| {
+                    try writer.print("{s}\n", .{extra});
+                }
+                if (e.pos) |pos| {
+                    try writer.print("{}\n", .{pos});
+                    try writer.print("line: {d}, column: {d}\n", .{ pos.line, pos.column });
+                }
+            },
+            .string => |s| try writer.print("{s}", .{s.value}),
+            .func => |f| try writer.print("[func {s}]", .{f.getName()}),
+        }
+    }
 };
 
 pub const Result = union(enum) {
@@ -804,7 +859,7 @@ pub fn safeStrCast(allocator: std.mem.Allocator, v: Value) !String {
             const char = try safeIntCast(u8, v);
             break :blk String{ .allocator = allocator, .value = &[_]u8{char}, .mem_type = .stack };
         },
-        .func => |f| String{ .allocator = allocator, .value = f.name, .mem_type = .stack }, // cast function to string == func name????
+        .func => |f| String{ .allocator = allocator, .value = f.getName(), .mem_type = .stack }, // cast function to string == func name????
         else => return error.InvalidCast,
     };
 }

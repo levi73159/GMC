@@ -1,13 +1,1 @@
-var bool ran = false;
-
-func hello() str {
-    if (!ran) {
-        ran = true;
-        return "Hello World!\n";
-    }
-    const str m2 = "Already ran!";
-    return m2;
-}
-
-const str msg = hello();
-const str other = hello();
+println("hello world!\nwow");
