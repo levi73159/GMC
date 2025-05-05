@@ -344,7 +344,7 @@ pub const Value = union(enum) {
         };
     }
 
-    pub fn err(msg: []const u8, extra: []const u8, pos: ?Pos) Value {
+    pub fn err(msg: []const u8, extra: ?[]const u8, pos: ?Pos) Value {
         return Value{ .runtime_error = Error{ .msg = msg, .extra = extra, .pos = pos } };
     }
 
@@ -779,7 +779,7 @@ pub const Result = union(enum) {
         };
     }
 
-    pub fn err(msg: []const u8, extra: []const u8, pos: ?Pos) Result {
+    pub fn err(msg: []const u8, extra: ?[]const u8, pos: ?Pos) Result {
         return Result{
             .value = Value.err(msg, extra, pos),
         };

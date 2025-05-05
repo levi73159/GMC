@@ -56,6 +56,30 @@ pub fn eval(self: Self, nodes: []const *const Node) void {
     }
 }
 
+pub fn evalResult(self: Self, nodes: []const *const Node) rt.Result {
+    var last_value: rt.Result = rt.Result.none();
+    for (nodes) |node| {
+        last_value = self.evalNode(node);
+        if (last_value == .signal) return last_value;
+        defer last_value.value.deinit(self.allocator);
+        switch (last_value.value) {
+            .runtime_error => |err| {
+                std.debug.print("Runtime error: {s}\n", .{err.msg});
+                if (err.extra) |extra| {
+                    std.debug.print("{s}\n", .{extra});
+                }
+                if (err.pos) |pos| {
+                    std.debug.print("{}\n", .{pos});
+                    std.debug.print("line: {d}, column: {d}\n", .{ pos.line, pos.column });
+                }
+                return last_value; // if error in program return instantly
+            },
+            else => {},
+        }
+    }
+    return last_value;
+}
+
 pub fn evalNode(self: Self, node: *const Node) rt.Result {
     return switch (node.*) {
         .number => self.evalNumber(node.number),

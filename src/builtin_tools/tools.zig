@@ -10,7 +10,7 @@ pub fn none() rt.Result {
     return rt.Result.none();
 }
 
-pub fn err(name: []const u8, msg: []const u8) rt.Result {
+pub fn err(name: []const u8, msg: ?[]const u8) rt.Result {
     return rt.Result.err(name, msg, null);
 }
 

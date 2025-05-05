@@ -1,6 +1,7 @@
 const std = @import("std");
 const rt = @import("../runtime.zig");
 const Interpreter = @import("../Interpreter.zig");
+const SymbolTable = @import("../SymbolTable.zig");
 const tools = @import("tools.zig");
 
 const end = tools.end;
@@ -104,4 +105,41 @@ pub fn input(args: []const rt.Value, base: Interpreter) rt.Result {
     }
 
     return none();
+}
+
+pub fn eval(args: []const rt.Value, base: Interpreter) rt.Result {
+    defer end(args, base);
+
+    const Lexer = @import("../Lexer.zig");
+    const Parser = @import("../Parser.zig");
+
+    if (args.len != 1) return err("eval", "Expected 1 argument");
+    if (args[0] != .string) return err("eval", "Expected string");
+
+    var arena = std.heap.ArenaAllocator.init(base.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const expr = args[0].string;
+    var lexer = Lexer.init(expr.value);
+    const tokens = lexer.makeTokens(allocator) catch |e| {
+        return errHeap(base.allocator, "Lexer Error", "Failed to evalulate: {s} due to {s}", .{ expr.value, @errorName(e) });
+    };
+
+    var parser = Parser.init(tokens, allocator, base.allocator);
+    const nodes = parser.parse() catch |e| {
+        return errHeap(base.allocator, "Parser Error", "Failed to evalulate: {s} due to {s}", .{ expr.value, @errorName(e) });
+    };
+
+    var symbols = SymbolTable.init(base.allocator);
+    symbols.parent = base.symbols;
+    defer symbols.deinit();
+
+    const interpreter = base.newScope(&symbols, base.allocator);
+    const result = interpreter.evalResult(nodes);
+
+    if (result == .signal) return errHeap(base.allocator, "Eval Error", "Failed to evalulate: {s} due to \"Returned a Signal\"", .{expr.value});
+    const value = result.value;
+    if (value == .runtime_error) return errHeap(base.allocator, "Eval Error", "Eval returned an error: {s}", .{value.runtime_error.msg});
+    return result;
 }
