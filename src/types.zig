@@ -264,3 +264,81 @@ pub const Function = union(enum) {
         };
     }
 };
+
+const GROW_FACTOR = 2;
+pub const List = struct {
+    allocator: std.mem.Allocator,
+    items: []Value = &.{},
+    capacity: u64 = 0,
+    refs: u32 = 1,
+
+    const Self = @This();
+
+    pub fn init(allocator: std.mem.Allocator) *Self {
+        const list = allocator.create(Self) catch unreachable;
+        list.* = Self{ .allocator = allocator };
+        return list;
+    }
+
+    pub fn fromItems(allocator: std.mem.Allocator, items: []const Value) *Self {
+        const list = Self.init(allocator);
+        list.appendSlice(items) catch unreachable;
+        return list;
+    }
+
+    pub fn deinit(self: *Self) void {
+        if (self.capacity == 0) return;
+        self.refs -= 1;
+        if (self.refs == 0) {
+            self.clear();
+            self.allocator.destroy(self);
+        }
+    }
+
+    pub fn clear(self: *Self) void {
+        if (self.capacity == 0) return;
+        self.allocator.free(self.items[0..self.capacity]);
+        self.items = &.{};
+        self.capacity = 0;
+    }
+
+    pub fn append(self: *Self, value: Value) !void {
+        try self.needGrow();
+        self.items.ptr[self.items.len] = value;
+        self.items.len += 1;
+    }
+
+    pub fn appendSlice(self: *Self, values: []const Value) !void {
+        if (self.capacity > values.len) try self.growTo(@intCast(self.capacity + values.len)); // grow if need
+        @memcpy(self.items.ptr[self.items.len .. self.items.len + values.len], values);
+        self.items.len += values.len;
+    }
+
+    pub fn pop(self: *Self) ?Value {
+        if (self.items.len == 0) return null;
+        self.items.len -= 1;
+        if (self.items.len == 0) self.clear(); // dealloc memory if empty
+        return self.items[self.items.len];
+    }
+
+    // check if we need to grow if so then we grow
+    fn needGrow(self: *Self) !void {
+        if (self.capacity <= self.items.len + 1) try self.grow();
+    }
+
+    fn growTo(self: *Self, len: u64) !void {
+        std.debug.assert(len > self.items.len);
+        const old_len = self.items.len;
+        self.items = try self.allocator.realloc(self.items.ptr[0..self.capacity], len);
+        self.capacity = len;
+        self.items.len = old_len;
+    }
+
+    fn grow(self: *Self) !void {
+        const old_len = self.items.len;
+        const new_cap = if (self.capacity == 0) 8 else self.capacity * GROW_FACTOR;
+        self.items = try self.allocator.realloc(self.items.ptr[0..self.capacity], new_cap);
+        self.capacity = new_cap;
+        self.items.len = old_len;
+    }
+};

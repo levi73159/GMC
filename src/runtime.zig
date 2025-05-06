@@ -24,6 +24,7 @@ pub const Value = union(enum) {
     string: types.String,
     char: u8,
     func: types.Function,
+    list: types.List,
     none,
     runtime_error: Error,
 
