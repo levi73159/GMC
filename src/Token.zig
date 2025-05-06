@@ -88,6 +88,9 @@ pub const TypeValue = enum {
     void,
     str,
     char,
+
+    // objects?
+    list,
 };
 
 pub const Value = union(enum) {

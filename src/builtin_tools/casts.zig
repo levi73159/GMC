@@ -96,6 +96,23 @@ pub fn asBool(args: []const rt.Value, base: Interpreter) rt.Result {
     return val(.{ .boolean = b });
 }
 
+pub fn asList(args: []const rt.Value, base: Interpreter) rt.Result {
+    defer end(args, base);
+
+    if (args.len != 1) return err("asList", "Expected 1 argument");
+
+    const arg = args[0];
+    if (arg == .list) {
+        return val(arg);
+    }
+
+    const list = rt.safeListCast(base.allocator, arg) catch {
+        return errHeap(base.allocator, "Invalid Cast", "Can't cast {s} to list", .{@tagName(arg)});
+    };
+
+    return val(.{ .list = list });
+}
+
 pub fn toString(args: []const rt.Value, base: Interpreter) rt.Result {
     defer end(args, base);
 

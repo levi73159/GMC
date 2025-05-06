@@ -704,6 +704,21 @@ pub fn safeStrCast(allocator: std.mem.Allocator, v: Value) !types.String {
     };
 }
 
+pub fn safeListCast(allocator: std.mem.Allocator, v: Value) !*types.List {
+    return switch (v) {
+        .string => |s| blk: {
+            const new = types.List.init(allocator);
+            new.resize(s.value.len) catch unreachable;
+            for (s.value) |char| {
+                try new.append(Value{ .char = char });
+            }
+            break :blk new;
+        },
+        .list => |l| l,
+        else => return error.InvalidCast,
+    };
+}
+
 pub fn castToSymbolValue(allocator: std.mem.Allocator, v: Value, ty: TypeVal) !SymbolTable.SymbolValue {
     const SymVal = SymbolTable.SymbolValue;
     return switch (ty) {
@@ -722,6 +737,7 @@ pub fn castToSymbolValue(allocator: std.mem.Allocator, v: Value, ty: TypeVal) !S
         .str => SymVal{ .string = try safeStrCast(allocator, v) },
         .char => SymVal{ .char = try safeIntCast(u8, v) },
         .void => SymVal{ .void = {} },
+        .list => SymVal{ .list = try safeListCast(allocator, v) },
     };
 }
 
@@ -743,6 +759,7 @@ pub fn castToValue(v: SymbolTable.SymbolValue) Value {
         .char => |c| Value{ .char = c },
         .func => |f| Value{ .func = f },
         .void => Value{ .none = {} },
+        .list => |l| Value{ .list = l.clone() },
     };
 }
 
@@ -762,6 +779,7 @@ pub fn getTypeValFromSymbolValue(v: SymbolTable.SymbolValue) !TypeVal {
         .string => TypeVal.str,
         .char => TypeVal.char,
         .void => TypeVal.void,
+        .list => TypeVal.list,
         .func => return error.InvalidType, // func does not havea typeval
     };
 }

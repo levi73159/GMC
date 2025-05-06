@@ -22,11 +22,15 @@ pub const SymbolValue = union(enum) {
     string: types.String,
     char: u8, // char is another name for u8 but treated like a character instead of a number
     func: types.Function,
+    list: *types.List,
 
     pub fn deinit(self: SymbolValue) void {
         switch (self) {
             .string => |s| {
                 s.deinit();
+            },
+            .list => |l| {
+                l.deinit();
             },
             else => {},
         }
@@ -35,6 +39,7 @@ pub const SymbolValue = union(enum) {
     pub fn clone(self: SymbolValue) SymbolValue {
         return switch (self) {
             .string => |s| SymbolValue{ .string = s.clone() },
+            .list => |l| SymbolValue{ .list = l.clone() },
             else => self,
         };
     }
