@@ -1,3 +1,1 @@
-const list x = [10, "hello", 3.14, 90, true];
-
-print(x);
+print(["hello", 10, "world!", 3.14, false]);

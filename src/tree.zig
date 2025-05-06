@@ -313,10 +313,10 @@ pub const ReturnStmt = struct {
 
 pub const Array = struct {
     start: Token,
-    elements: []const *const Node,
+    items: []const *const Node,
     end: Token,
 
     pub fn deinit(self: Array) void {
-        for (self.elements) |element| element.deinit();
+        for (self.items) |element| element.deinit();
     }
 };

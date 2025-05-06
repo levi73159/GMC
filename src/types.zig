@@ -22,6 +22,10 @@ pub const Error = struct {
             if (self.extra) |extra| allocator.free(extra);
         }
     }
+
+    pub fn equal(_: Error, _: Error) bool {
+        return false;
+    }
 };
 
 pub const String = struct {
@@ -149,6 +153,16 @@ pub const String = struct {
             .allocator = allocator,
         };
     }
+
+    pub fn equal(self: String, other: String) bool {
+        if (self.value.len != other.value.len) return false;
+        return std.mem.eql(u8, self.value, other.value);
+    }
+
+    pub fn equalChar(self: String, other: u8) bool {
+        if (self.value.len != 1) return false;
+        return self.value[0] == other;
+    }
 };
 
 pub const BaseFunction = struct {
@@ -263,6 +277,12 @@ pub const Function = union(enum) {
             .bultin => |f| f.call(args, base),
         };
     }
+
+    pub fn equal(self: Function, other: Function) bool {
+        const self_name = self.getName();
+        const other_name = other.getName();
+        return std.mem.eql(u8, self_name, other_name);
+    }
 };
 
 const GROW_FACTOR = 2;
@@ -295,9 +315,14 @@ pub const List = struct {
         }
     }
 
+    pub fn clone(self: *Self) *Self {
+        self.refs += 1;
+        return self;
+    }
+
     pub fn clear(self: *Self) void {
         if (self.capacity == 0) return;
-        self.allocator.free(self.items[0..self.capacity]);
+        self.allocator.free(self.items.ptr[0..self.capacity]);
         self.items = &.{};
         self.capacity = 0;
     }
@@ -309,7 +334,7 @@ pub const List = struct {
     }
 
     pub fn appendSlice(self: *Self, values: []const Value) !void {
-        if (self.capacity > values.len) try self.growTo(@intCast(self.capacity + values.len)); // grow if need
+        if (self.capacity > values.len) try self.resize(@intCast(self.capacity + values.len)); // grow if need
         @memcpy(self.items.ptr[self.items.len .. self.items.len + values.len], values);
         self.items.len += values.len;
     }
@@ -326,7 +351,7 @@ pub const List = struct {
         if (self.capacity <= self.items.len + 1) try self.grow();
     }
 
-    fn growTo(self: *Self, len: u64) !void {
+    pub fn resize(self: *Self, len: u64) !void {
         std.debug.assert(len > self.items.len);
         const old_len = self.items.len;
         self.items = try self.allocator.realloc(self.items.ptr[0..self.capacity], len);
@@ -340,5 +365,13 @@ pub const List = struct {
         self.items = try self.allocator.realloc(self.items.ptr[0..self.capacity], new_cap);
         self.capacity = new_cap;
         self.items.len = old_len;
+    }
+
+    pub fn equal(self: *const Self, other: *const Self) bool {
+        if (self.items.len != other.items.len) return false;
+        for (self.items, other.items) |a, b| {
+            if (!a.equalB(b)) return false;
+        }
+        return true;
     }
 };

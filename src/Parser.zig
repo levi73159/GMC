@@ -716,7 +716,7 @@ fn parseArray(self: *Self) ParseError!*const tree.Node {
     return self.allocNode(tree.Node{
         .array = .{
             .start = start,
-            .elements = try elements.toOwnedSlice(),
+            .items = try elements.toOwnedSlice(),
             .end = end,
         },
     });

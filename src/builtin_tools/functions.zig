@@ -82,11 +82,11 @@ pub fn len(args: []const rt.Value, base: Interpreter) rt.Result {
     if (args.len != 1) return err("len", "Expected 1 argument");
 
     const arg = args[0];
-    if (arg == .string) {
-        return val(.{ .integer = arg.string.value.len });
-    }
-
-    return err("len", "Expected string");
+    return switch (arg) {
+        .string => |s| val(.{ .integer = s.value.len }),
+        .list => |l| val(.{ .integer = l.items.len }),
+        else => err("len", "Expected a sizeable type"),
+    };
 }
 
 pub fn input(args: []const rt.Value, base: Interpreter) rt.Result {

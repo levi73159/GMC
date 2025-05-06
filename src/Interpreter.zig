@@ -101,7 +101,7 @@ pub fn evalNode(self: Self, node: *const Node) rt.Result {
         .function_decl => self.evalFunctionDecl(node),
         .call => self.evalCall(node),
         .returnstmt => self.evalReturn(node),
-        .array => rt.Result.none(),
+        .array => self.evalArray(node),
     };
 }
 
@@ -520,4 +520,22 @@ fn evalReturn(self: Self, og_node: *const Node) rt.Result {
     }
 
     return rt.Result.sig(.{ .@"return" = .none });
+}
+
+fn evalArray(self: Self, og_node: *const Node) rt.Result {
+    const node = og_node.array;
+    defer if (!self.static) node.deinit();
+
+    const list = ty.List.init(self.allocator);
+    defer list.deinit();
+    list.resize(node.items.len) catch unreachable;
+
+    for (node.items) |item| {
+        const result = self.evalNode(item);
+        if (checkRuntimeErrorOrSignal(result, og_node)) |err| return err;
+        list.append(result.value) catch unreachable;
+    }
+
+    _ = list.clone(); // increment ref count so when we deinit the list it doesn't free the memory
+    return rt.Result.val(.{ .list = list });
 }

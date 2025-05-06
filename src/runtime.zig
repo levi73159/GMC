@@ -24,7 +24,7 @@ pub const Value = union(enum) {
     string: types.String,
     char: u8,
     func: types.Function,
-    list: types.List,
+    list: *types.List,
     none,
     runtime_error: Error,
 
@@ -37,6 +37,7 @@ pub const Value = union(enum) {
             .char => |c| Value{ .boolean = c != 0 },
             .none => Value{ .boolean = false }, // none == false
             .func => Value{ .boolean = true }, // func == true because it have a value
+            .list => |l| Value{ .boolean = l.items.len > 0 },
             .boolean, .runtime_error => self,
         };
     }
@@ -75,6 +76,7 @@ pub const Value = union(enum) {
     pub fn clone(self: Value) Value {
         return switch (self) {
             .string => |s| Value{ .string = s.clone() },
+            .list => |l| Value{ .list = l.clone() },
             else => self,
         };
     }
@@ -83,15 +85,9 @@ pub const Value = union(enum) {
         switch (self) {
             .string => |s| s.deinit(),
             .runtime_error => |e| e.deinit(allocator),
+            .list => |l| l.deinit(),
             else => {},
         }
-    }
-
-    pub fn removeRef(self: Value) Value {
-        return switch (self) {
-            .string => |s| Value{ .string = s.removeRefs() },
-            else => self,
-        };
     }
 
     pub fn err(msg: []const u8, extra: ?[]const u8, pos: ?Pos) Value {
@@ -126,6 +122,15 @@ pub const Value = union(enum) {
                     break :blk Value{ .string = types.String.fromConcatChars(c, char, allocator) };
                 },
                 else => Value.err("Invalid type", "Can't add string to nonstring", null),
+            },
+            .list => |l| switch (rhs) {
+                .list => |r| blk: {
+                    const new = types.List.init(allocator);
+                    new.appendSlice(l.items) catch @panic("out of memory");
+                    new.appendSlice(r.items) catch @panic("out of memory");
+                    break :blk Value{ .list = new };
+                },
+                else => Value.err("Invalid type", "Can't add list to nonlist", null),
             },
             else => Value.err("Invalid type", "Can't add nonnumeric values", null),
         };
@@ -336,6 +341,62 @@ pub const Value = union(enum) {
         return rhs.convertToBool();
     }
 
+    // this equal function is a bit different
+    // it returns a bool instead of a Value use for comparisions outside of the runtime
+    pub fn equalB(lhs: Value, rhs: Value) bool {
+        if (lhs == .runtime_error) return false;
+        if (rhs == .runtime_error) return false;
+
+        switch (lhs) {
+            .integer => |i| switch (rhs) {
+                .integer => |j| return i == j,
+                .float => |f| return @as(f64, @floatFromInt(i)) == f,
+                .boolean => |b| return b == (i != 0),
+                .none => return i == 0,
+                else => return false,
+            },
+            .float => |f| switch (rhs) {
+                .integer => |i| return f == @as(f64, @floatFromInt(i)),
+                .float => |j| return f == j,
+                .boolean => |b| return b == (f != 0.0),
+                .none => return f == 0.0,
+                else => return false,
+            },
+            .boolean => |b| switch (rhs) {
+                .integer => |i| return b == (i != 0),
+                .float => |f| return b == (f != 0.0),
+                .boolean => |j| return b == j,
+                .none => return !b,
+                else => return false,
+            },
+            .none => switch (rhs) {
+                .integer => |i| return i == 0,
+                .float => |f| return f == 0.0,
+                .boolean => |b| return !b,
+                .none => return true,
+                else => return false,
+            },
+            .string => |s| switch (rhs) {
+                .string => |j| return s.equal(j),
+                .char => |c| return s.equalChar(c),
+                .none => return s.value.len == 0,
+                else => return false,
+            },
+            .char => |c| switch (rhs) {
+                .char => |j| return c == j,
+                .string => |s| return s.equalChar(c),
+                .none => return c == 0,
+                else => return false,
+            },
+            .list => |l| switch (rhs) {
+                .list => |j| return l.equal(j),
+                .none => return l.items.len == 0,
+                else => return false,
+            },
+            else => return false,
+        }
+    }
+
     pub fn equal(lhs: Value, rhs: Value) Value {
         if (lhs == .runtime_error) return lhs;
         if (rhs == .runtime_error) return rhs;
@@ -368,7 +429,7 @@ pub const Value = union(enum) {
                 .string => |j| Value{ .boolean = s.value.len == j.value.len and std.mem.eql(u8, s.value, j.value) },
                 .char => |c| Value{ .boolean = s.value.len == 1 and s.value[0] == c },
                 .none => Value{ .boolean = s.value.len == 0 },
-                else => Value.err("Invalid type", "Can't compare nonnumeric values", null),
+                else => Value.err("Invalid type", "Can't compare strings to nonstring values", null),
             },
             .char => |c| switch (rhs) {
                 .char => |j| Value{ .boolean = c == j },
@@ -384,6 +445,12 @@ pub const Value = union(enum) {
                 .char => |c| Value{ .boolean = c == 0 },
                 .none => Value{ .boolean = true },
                 else => Value.err("Invalid type", "Can't compare nonnumeric values", null),
+            },
+            .func => Value.err("Invalid type", "Can't compare functions", null), // you can techincally compare functions but that's a bad idea hince the error
+            .list => |l| switch (rhs) {
+                .list => |j| Value{ .boolean = l.equal(j) },
+                .none => Value{ .boolean = l.items.len == 0 },
+                else => Value.err("Invalid type", "Can't compare list to nonlist values", null),
             },
             else => Value.err("Invalid type", "Can't compare nonnumeric values", null),
         };
@@ -509,6 +576,19 @@ pub const Value = union(enum) {
             },
             .string => |s| try writer.print("{s}", .{s.value}),
             .func => |f| try writer.print("[func {s}]", .{f.getName()}),
+            .list => |l| {
+                try writer.writeByte('[');
+                for (l.items, 0..) |item, i| {
+                    if (i != 0) try writer.writeByte(' ');
+                    if (item == .string) try writer.writeByte('"');
+                    if (item == .char) try writer.writeByte('\'');
+                    try writer.print("{}", .{item});
+                    if (item == .char) try writer.writeByte('\'');
+                    if (item == .string) try writer.writeByte('"');
+                    if (i != l.items.len - 1) try writer.writeByte(',');
+                }
+                try writer.writeByte(']');
+            },
         }
     }
 };
