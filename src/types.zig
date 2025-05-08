@@ -70,6 +70,10 @@ pub const String = struct {
     }
 
     pub fn clone(self: String) String {
+        return self.ref(); // since strings are immutable we don't need to copy
+    }
+
+    pub fn ref(self: String) String {
         return String{ .value = self.value, .mem_type = switch (self.mem_type) {
             .heap => |heap| blk: {
                 const inner = heap;
@@ -323,6 +327,11 @@ pub const List = struct {
     }
 
     pub fn clone(self: *Self) *Self {
+        const list = Self.fromItems(self.allocator, self.items);
+        return list;
+    }
+
+    pub fn ref(self: *Self) *Self {
         self.refs += 1;
         return self;
     }
@@ -341,7 +350,7 @@ pub const List = struct {
     }
 
     pub fn appendSlice(self: *Self, values: []const Value) !void {
-        if (self.capacity > values.len) try self.resize(@intCast(self.capacity + values.len)); // grow if need
+        if (self.capacity < values.len) try self.resize(@intCast(self.capacity + values.len)); // grow if need
         @memcpy(self.items.ptr[self.items.len .. self.items.len + values.len], values);
         self.items.len += values.len;
     }
@@ -358,7 +367,7 @@ pub const List = struct {
         if (self.capacity <= self.items.len + 1) try self.grow();
     }
 
-    pub fn resize(self: *Self, len: u64) !void {
+    pub fn resize(self: *Self, len: usize) !void {
         std.debug.assert(len > self.items.len);
         const old_len = self.items.len;
         self.items = try self.allocator.realloc(self.items.ptr[0..self.capacity], len);

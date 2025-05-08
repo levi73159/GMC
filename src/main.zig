@@ -165,9 +165,7 @@ fn runFile(dbg: std.mem.Allocator, file: std.fs.File) !void {
 }
 
 fn run(text: []const u8, allocator: std.mem.Allocator, dbg_allocator: std.mem.Allocator, symbols: *SymbolTable, force_heap: bool) void {
-    std.log.debug("Running text: {s}", .{text});
     var lexer = Lexer.init(text);
-    std.log.debug("Lexer initialized", .{});
     const tokens = lexer.makeTokens(allocator) catch |err| switch (err) {
         error.OutOfMemory => {
             std.log.err("OUT OF MEMORY!!!", .{});
@@ -181,10 +179,8 @@ fn run(text: []const u8, allocator: std.mem.Allocator, dbg_allocator: std.mem.Al
         },
     };
     defer allocator.free(tokens);
-    std.log.debug("Tokens made", .{});
 
     var parser = Parser.init(tokens, allocator, dbg_allocator);
-    std.log.debug("Parser initialized", .{});
     const nodes = parser.parse() catch |err| switch (err) {
         error.OutOfMemory => {
             std.log.err("OUT OF MEMORY!!!", .{});
@@ -210,11 +206,8 @@ fn run(text: []const u8, allocator: std.mem.Allocator, dbg_allocator: std.mem.Al
         },
     };
     defer parser.deinit(nodes);
-    std.log.debug("Nodes made", .{});
 
     var interperter = Interpreter.init(dbg_allocator, symbols);
-    std.log.debug("Interperter initialized", .{});
     interperter.heap_str_only = force_heap;
     interperter.eval(nodes);
-    std.log.debug("Interperter evaluated", .{});
 }

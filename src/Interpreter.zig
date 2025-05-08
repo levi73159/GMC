@@ -246,7 +246,10 @@ fn evalVarAssign(self: Self, og_node: *const Node) rt.Result {
     const node = og_node.var_assign;
     const rtresult = self.evalNode(node.value);
     if (checkRuntimeErrorOrSignal(rtresult, node.value)) |err| return err;
-    const value = rtresult.value;
+    const value_unclone = rtresult.value;
+    defer value_unclone.deinit(self.allocator);
+
+    const value = value_unclone.clone();
 
     // it can either be a identifier or an index access
     switch (node.left.*) {
@@ -554,8 +557,7 @@ fn evalArray(self: Self, og_node: *const Node) rt.Result {
         list.append(result.value) catch unreachable;
     }
 
-    _ = list.clone(); // increment ref count so when we deinit the list it doesn't free the memory
-    return rt.Result.val(.{ .list = list });
+    return rt.Result.val(.{ .list = list.ref() });
 }
 
 fn evalIndex(self: Self, og_node: *const Node) rt.Result {

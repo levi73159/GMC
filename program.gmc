@@ -1,0 +1,11 @@
+const list x = [1, 2, 3];
+var list y = x;
+y = x;
+
+println(x);
+println(y);
+
+y[0] = 10;
+
+println(x);
+println(y);

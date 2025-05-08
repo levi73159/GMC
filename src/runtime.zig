@@ -94,6 +94,14 @@ pub const Value = union(enum) {
         };
     }
 
+    pub fn ref(self: Value) Value {
+        return switch (self) {
+            .string => |s| Value{ .string = s.ref() },
+            .list => |l| Value{ .list = l.ref() },
+            else => self,
+        };
+    }
+
     pub fn deinit(self: Value, allocator: std.mem.Allocator) void {
         switch (self) {
             .string => |s| s.deinit(),
@@ -142,6 +150,9 @@ pub const Value = union(enum) {
             .list => |l| switch (rhs) {
                 .list => |r| blk: {
                     const new = types.List.init(allocator);
+                    l.deinit();
+                    r.deinit();
+
                     new.appendSlice(l.items) catch @panic("out of memory");
                     new.appendSlice(r.items) catch @panic("out of memory");
                     break :blk Value{ .list = new };
@@ -855,11 +866,11 @@ pub fn castToValue(v: SymbolTable.SymbolValue) Value {
         .float => |f| Value{ .float = f },
 
         .bool => |b| Value{ .boolean = b },
-        .string => |s| Value{ .string = s.clone() },
+        .string => |s| Value{ .string = s.ref() },
         .char => |c| Value{ .char = c },
         .func => |f| Value{ .func = f },
         .void => Value{ .none = {} },
-        .list => |l| Value{ .list = l.clone() },
+        .list => |l| Value{ .list = l.ref() },
     };
 }
 
