@@ -27,6 +27,7 @@ const ParseError = error{
     MissingCurlyBracket,
     NumberOverflow,
     InvalidNumber,
+    InvalidAssignmentTarget,
     InvalidCharacter,
     MissingEndOfString,
 };
@@ -243,21 +244,6 @@ fn parseExpression(self: *Self) ParseError!*const tree.Node {
     if (self.match(.var_kw) or self.match(.const_kw)) {
         return self.parseVariableDecl();
     }
-    if (self.match(.identifier)) {
-        if (self.matchP(.equal, 1)) {
-            return self.parseVariableAssign();
-        }
-        // zig fmt: off
-        if (self.matchP(.plus_equal, 1) 
-            or self.matchP(.minus_equal, 1) 
-            or self.matchP(.star_equal, 1) 
-            or self.matchP(.slash_equal, 1) 
-            or self.matchP(.plus_plus, 1) 
-            or self.matchP(.minus_minus, 1)) {
-            return self.parseVariableAssignOp();
-        }
-        // zig fmt: on
-    }
     // use match instead of consume because the parseIf checks for the if keyword
     if (self.match(.left_curly_bracket)) return self.parseBlockOr(&parseExpression);
     if (self.match(.if_kw)) return self.parseIf(true);
@@ -266,7 +252,7 @@ fn parseExpression(self: *Self) ParseError!*const tree.Node {
 
     if (self.match(.left_bracket)) return self.parseArray();
 
-    return self.parseLogicalOr();
+    return self.parseAssign();
 }
 
 fn parseVariableDecl(self: *Self) ParseError!*const tree.Node {
@@ -297,52 +283,80 @@ fn parseVariableDecl(self: *Self) ParseError!*const tree.Node {
     }
 }
 
-fn parseVariableAssign(self: *Self) ParseError!*const tree.Node {
-    const identifier = self.consume(.identifier) orelse return self.badToken(error.ExpectedIdentifier);
-    _ = self.consume(.equal) orelse return self.badToken(error.ExpectedEqual);
-    const value = try self.parseExpression();
-    return self.allocNode(tree.Node{ .var_assign = .{ .identifier = identifier, .value = value } });
+fn parseAssign(self: *Self) ParseError!*const tree.Node {
+    const lhs = try self.parseVariableAssignOp();
+    if (self.consume(.equal)) |_| {
+        switch (lhs.*) {
+            .identifier, .index_access => {},
+            else => return error.InvalidAssignmentTarget,
+        }
+        const rhs = try self.parseExpression();
+        return self.allocNode(tree.Node{ .var_assign = .{ .left = lhs, .value = rhs } });
+    }
+    return lhs;
 }
 
 fn parseVariableAssignOp(self: *Self) ParseError!*const tree.Node {
-    const identifier = self.consume(.identifier) orelse return self.badToken(error.ExpectedIdentifier);
-    const op = self.advance() orelse return error.MissingOperator;
+    const lhs = try self.parseLogicalOr();
+    if (self.peekNextIsCompoundAssignOp()) {
+        return self.desurgarCompoundAssign(lhs);
+    }
 
-    const value = blk: {
-        if (op.kind == .plus_plus or op.kind == .minus_minus) {
-            var new_tok = Token.init(.number, "1");
-            _ = new_tok.setPos(op.pos);
-            break :blk try self.allocNode(tree.Node{ .number = .{ .integer = .{ .n = 1, .orginal = new_tok } } }); // We create a token with pos == null
-        } else {
-            break :blk try self.parseExpression();
-        }
+    return lhs;
+}
+
+fn peekNextIsCompoundAssignOp(self: *Self) bool {
+    const p = self.current() orelse return false;
+
+    return switch (p.kind) {
+        .plus_equal, .minus_equal, .star_equal, .slash_equal, .plus_plus, .minus_minus => true,
+        else => false,
     };
+}
 
-    const new_op_kind: Token.Kind = switch (op.kind) {
-        .plus_plus => .plus,
-        .minus_minus => .minus,
+fn desurgarCompoundAssign(self: *Self, lhs: *const tree.Node) ParseError!*const tree.Node {
+    switch (lhs.*) {
+        .identifier, .index_access => {},
+        else => return error.InvalidAssignmentTarget,
+    }
+    const op = self.advance().?;
+
+    const new_op: Token.Kind = switch (op.kind) {
         .plus_equal => .plus,
         .minus_equal => .minus,
         .star_equal => .star,
         .slash_equal => .slash,
-        else => return error.InvalidToken,
+        .plus_plus => .plus,
+        .minus_minus => .plus,
+        else => unreachable,
+    };
+    const new_tok = Token{
+        .kind = new_op,
+        .lexeme = op.lexeme,
+        .pos = op.pos,
     };
 
-    var new_op = Token.init(new_op_kind, op.lexeme);
-    _ = new_op.setPos(op.pos).setValue(op.value);
+    if (op.kind == .plus_plus or op.kind == .minus_minus) {
+        const bin_op = try self.allocNode(tree.Node{
+            .bin_op = .{
+                .left = lhs,
+                .op = new_tok,
+                .right = try self.allocNode(tree.Node{ .number = .{ .integer = .{ .n = 1, .orginal = op } } }),
+            },
+        });
+        return self.allocNode(tree.Node{ .var_assign = .{ .left = lhs, .value = bin_op } });
+    }
 
-    return self.allocNode(.{
-        .var_assign = .{
-            .identifier = identifier,
-            .value = try self.allocNode(tree.Node{
-                .bin_op = .{
-                    .left = try self.allocNode(tree.Node{ .identifier = identifier }),
-                    .op = new_op,
-                    .right = value,
-                },
-            }),
+    const rhs = try self.parseExpression();
+
+    const bin_op = try self.allocNode(tree.Node{
+        .bin_op = .{
+            .left = lhs,
+            .op = new_tok,
+            .right = rhs,
         },
     });
+    return self.allocNode(tree.Node{ .var_assign = .{ .left = lhs, .value = bin_op } });
 }
 
 fn parseIf(self: *Self, expect_value: bool) ParseError!*const tree.Node {
@@ -502,6 +516,18 @@ fn parseUnary(self: *Self) ParseError!*const tree.Node {
 }
 
 fn parsePrimary(self: *Self) ParseError!*const tree.Node {
+    const left = try self.parseBasePrimary();
+    if (self.consume(.left_bracket)) |_| {
+        const index = try self.parseExpression();
+        _ = self.consume(.right_bracket) orelse return self.badToken(error.MissingBracket);
+        return self.allocNode(tree.Node{ .index_access = .{ .value = left, .index = index } });
+    }
+
+    return left;
+}
+
+// add suffixes so when we parse primary we can then parse a suffix such as [0] or ()
+fn parseBasePrimary(self: *Self) ParseError!*const tree.Node {
     if (self.consume(.left_paren)) |_| {
         const expr = try self.parseExpression();
         if (self.consume(.right_paren)) |_| {
@@ -538,8 +564,6 @@ fn parsePrimary(self: *Self) ParseError!*const tree.Node {
             const args = try self.parseArguments();
             const end = self.consume(.right_paren) orelse return error.MissingParen;
             return self.allocNode(tree.Node{ .call = .{ .callee = tok, .args = args, .end = end } });
-        } else {
-            return self.allocNode(tree.Node{ .identifier = tok });
         }
         return self.allocNode(tree.Node{ .identifier = tok });
     }

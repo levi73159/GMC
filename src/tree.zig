@@ -31,6 +31,7 @@ pub const Node = union(enum) {
     call: Call,
     returnstmt: ReturnStmt,
     array: Array,
+    index_access: IndexAccess,
 
     pub fn getLeftPos(self: Node) ?DebugPos {
         return switch (self) {
@@ -46,7 +47,7 @@ pub const Node = union(enum) {
             .bin_op => |b| b.left.getLeftPos(),
             .unary_op => |u| u.op.pos,
             .var_decl => |v| v.is_const.orginal.pos,
-            .var_assign => |v| v.identifier.pos,
+            .var_assign => |v| v.left.getLeftPos(),
             .ifstmt => |i| i.start.pos,
             .forstmt => |f| f.start.pos,
             .breakstmt => |b| b.start.pos,
@@ -56,6 +57,7 @@ pub const Node = union(enum) {
             .call => |c| c.callee.pos,
             .returnstmt => |r| r.start.pos,
             .array => |a| a.start.pos,
+            .index_access => |i| i.value.getLeftPos(),
         };
     }
 
@@ -83,6 +85,7 @@ pub const Node = union(enum) {
             .call => |c| c.end.pos,
             .returnstmt => |r| if (r.value) |value| value.getRightPos() else r.start.pos,
             .array => |a| a.end.pos,
+            .index_access => |i| i.value.getRightPos(),
         };
     }
 
@@ -113,6 +116,7 @@ pub const Node = union(enum) {
             .call => |c| c.deinit(),
             .returnstmt => |r| r.deinit(),
             .array => |a| a.deinit(),
+            .index_access => |i| i.deinit(),
         }
     }
 };
@@ -189,10 +193,11 @@ pub const VariableDecl = struct {
 };
 
 pub const VariableAssign = struct {
-    identifier: Token,
+    left: *const Node,
     value: *const Node,
 
     pub fn deinit(self: VariableAssign) void {
+        self.left.deinit();
         self.value.deinit();
     }
 };
@@ -318,5 +323,15 @@ pub const Array = struct {
 
     pub fn deinit(self: Array) void {
         for (self.items) |element| element.deinit();
+    }
+};
+
+pub const IndexAccess = struct {
+    value: *const Node,
+    index: *const Node,
+
+    pub fn deinit(self: IndexAccess) void {
+        self.value.deinit();
+        self.index.deinit();
     }
 };

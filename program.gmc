@@ -1,3 +1,0 @@
-const list x = asList("hello, world!");
-
-print(x[2]);

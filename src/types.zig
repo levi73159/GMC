@@ -163,6 +163,13 @@ pub const String = struct {
         if (self.value.len != 1) return false;
         return self.value[0] == other;
     }
+
+    pub fn index(self: String, i: Value) Value {
+        defer self.deinit();
+        const iv = rt.castToIndex(i, self.value.len) catch return Value.err("IndexError", "Can't cast to index", null);
+        if (iv < 0 or iv >= self.value.len) return Value.err("IndexError", "Index out of range", null);
+        return Value{ .char = self.value[iv] };
+    }
 };
 
 pub const BaseFunction = struct {
@@ -373,5 +380,12 @@ pub const List = struct {
             if (!a.equalB(b)) return false;
         }
         return true;
+    }
+
+    pub fn index(self: *Self, i: Value) Value {
+        defer self.deinit();
+        const iv = rt.castToIndex(i, self.items.len) catch return Value.err("IndexError", "Can't cast to index", null);
+        if (iv < 0 or iv >= self.items.len) return Value.err("IndexError", "Index out of range", null);
+        return Value{ .ptr = &self.items[iv] };
     }
 };

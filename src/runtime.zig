@@ -25,8 +25,19 @@ pub const Value = union(enum) {
     char: u8,
     func: types.Function,
     list: *types.List,
+    ptr: *Value, // all pointers are nonconst
     none,
     runtime_error: Error,
+
+    // if you don't care if it's a pointer use this function to depointerize
+    // depointerize 3000 will depointize a pointer if it is
+    // only $9.99
+    pub fn depointerize(self: Value) Value {
+        return switch (self) {
+            .ptr => |p| p.*,
+            else => self,
+        };
+    }
 
     // converts the value to a boolean value
     pub fn convertToBool(self: Value) Value {
@@ -39,9 +50,11 @@ pub const Value = union(enum) {
             .func => Value{ .boolean = true }, // func == true because it have a value
             .list => |l| Value{ .boolean = l.items.len > 0 },
             .boolean, .runtime_error => self,
+            .ptr => |p| p.convertToBool(),
         };
     }
 
+    // converts a node (string) to a value (string)
     pub fn str(node: tree.String, force_heap: bool, allocator: std.mem.Allocator) !Value {
         if (force_heap) {
             const inner = try allocator.create(types.String.Inner);
@@ -94,7 +107,10 @@ pub const Value = union(enum) {
         return Value{ .runtime_error = Error{ .msg = msg, .extra = extra, .pos = pos } };
     }
 
-    pub fn add(allocator: std.mem.Allocator, lhs: Value, rhs: Value) Value {
+    pub fn add(allocator: std.mem.Allocator, lhs_n: Value, rhs_n: Value) Value {
+        const lhs = lhs_n.depointerize();
+        const rhs = rhs_n.depointerize();
+
         if (lhs == .runtime_error) return lhs;
         if (rhs == .runtime_error) return rhs;
 
@@ -136,9 +152,13 @@ pub const Value = union(enum) {
         };
     }
 
-    pub fn sub(lhs: Value, rhs: Value) Value {
+    pub fn sub(lhs_n: Value, rhs_n: Value) Value {
+        const lhs = lhs_n.depointerize();
+        const rhs = rhs_n.depointerize();
+
         if (lhs == .runtime_error) return lhs;
         if (rhs == .runtime_error) return rhs;
+
         return switch (lhs) {
             .integer => |i| switch (rhs) {
                 .integer => |j| Value{ .integer = i - j },
@@ -154,9 +174,13 @@ pub const Value = union(enum) {
         };
     }
 
-    pub fn mul(allocator: std.mem.Allocator, lhs: Value, rhs: Value) Value {
+    pub fn mul(allocator: std.mem.Allocator, lhs_n: Value, rhs_n: Value) Value {
+        const lhs = lhs_n.depointerize();
+        const rhs = rhs_n.depointerize();
+
         if (lhs == .runtime_error) return lhs;
         if (rhs == .runtime_error) return rhs;
+
         return switch (lhs) {
             .integer => |i| switch (rhs) {
                 .integer => |j| Value{ .integer = i * j },
@@ -188,9 +212,13 @@ pub const Value = union(enum) {
         };
     }
 
-    pub fn div(lhs: Value, rhs: Value) Value {
+    pub fn div(lhs_n: Value, rhs_n: Value) Value {
+        const lhs = lhs_n.depointerize();
+        const rhs = rhs_n.depointerize();
+
         if (lhs == .runtime_error) return lhs;
         if (rhs == .runtime_error) return rhs;
+
         switch (rhs) {
             .integer => |i| if (i == 0) return Value.err("Division by zero", "Can't divide by zero", null),
             .float => |f| if (f == 0) return Value.err("Division by zero", "Can't divide by zero", null),
@@ -212,7 +240,10 @@ pub const Value = union(enum) {
         };
     }
 
-    pub fn mod(lhs: Value, rhs: Value) Value {
+    pub fn mod(lhs_n: Value, rhs_n: Value) Value {
+        const lhs = lhs_n.depointerize();
+        const rhs = rhs_n.depointerize();
+
         if (lhs == .runtime_error) return lhs;
         if (rhs == .runtime_error) return rhs;
 
@@ -231,9 +262,13 @@ pub const Value = union(enum) {
         };
     }
 
-    pub fn bitAnd(lhs: Value, rhs: Value) Value {
+    pub fn bitAnd(lhs_n: Value, rhs_n: Value) Value {
+        const lhs = lhs_n.depointerize();
+        const rhs = rhs_n.depointerize();
+
         if (lhs == .runtime_error) return lhs;
         if (rhs == .runtime_error) return rhs;
+
         return switch (lhs) {
             .integer => |i| switch (rhs) {
                 .integer => |j| Value{ .integer = i & j },
@@ -245,9 +280,13 @@ pub const Value = union(enum) {
         };
     }
 
-    pub fn bitOr(lhs: Value, rhs: Value) Value {
+    pub fn bitOr(lhs_n: Value, rhs_n: Value) Value {
+        const lhs = lhs_n.depointerize();
+        const rhs = rhs_n.depointerize();
+
         if (lhs == .runtime_error) return lhs;
         if (rhs == .runtime_error) return rhs;
+
         return switch (lhs) {
             .integer => |i| switch (rhs) {
                 .integer => |j| Value{ .integer = i | j },
@@ -259,9 +298,13 @@ pub const Value = union(enum) {
         };
     }
 
-    pub fn bitXor(lhs: Value, rhs: Value) Value {
+    pub fn bitXor(lhs_n: Value, rhs_n: Value) Value {
+        const lhs = lhs_n.depointerize();
+        const rhs = rhs_n.depointerize();
+
         if (lhs == .runtime_error) return lhs;
         if (rhs == .runtime_error) return rhs;
+
         return switch (lhs) {
             .integer => |i| switch (rhs) {
                 .integer => |j| Value{ .integer = i ^ j },
@@ -283,7 +326,10 @@ pub const Value = union(enum) {
     }
 
     const OpFunc = fn (lhs: Value, rhs: Value) Value;
-    fn reverseShift(lhs: Value, rhs: Value, func: OpFunc) ?Value {
+    fn reverseShift(lhs_n: Value, rhs_n: Value, func: OpFunc) ?Value {
+        const lhs = lhs_n.depointerize();
+        const rhs = rhs_n.depointerize();
+
         if (lhs == .runtime_error) return lhs;
         if (rhs == .runtime_error) return rhs;
 
@@ -296,7 +342,10 @@ pub const Value = union(enum) {
         return null;
     }
 
-    pub fn lshift(lhs: Value, rhs: Value) Value {
+    pub fn lshift(lhs_n: Value, rhs_n: Value) Value {
+        const lhs = lhs_n.depointerize();
+        const rhs = rhs_n.depointerize();
+
         if (reverseShift(lhs, rhs, rshift)) |v| return v;
 
         return switch (lhs) {
@@ -310,7 +359,10 @@ pub const Value = union(enum) {
         };
     }
 
-    pub fn rshift(lhs: Value, rhs: Value) Value {
+    pub fn rshift(lhs_n: Value, rhs_n: Value) Value {
+        const lhs = lhs_n.depointerize();
+        const rhs = rhs_n.depointerize();
+
         if (reverseShift(lhs, rhs, lshift)) |v| return v;
 
         return switch (lhs) {
@@ -343,7 +395,10 @@ pub const Value = union(enum) {
 
     // this equal function is a bit different
     // it returns a bool instead of a Value use for comparisions outside of the runtime
-    pub fn equalB(lhs: Value, rhs: Value) bool {
+    pub fn equalB(lhs_n: Value, rhs_n: Value) bool {
+        const lhs = lhs_n.depointerize();
+        const rhs = rhs_n.depointerize();
+
         if (lhs == .runtime_error) return false;
         if (rhs == .runtime_error) return false;
 
@@ -397,7 +452,10 @@ pub const Value = union(enum) {
         }
     }
 
-    pub fn equal(lhs: Value, rhs: Value) Value {
+    pub fn equal(lhs_n: Value, rhs_n: Value) Value {
+        const lhs = lhs_n.depointerize();
+        const rhs = rhs_n.depointerize();
+
         if (lhs == .runtime_error) return lhs;
         if (rhs == .runtime_error) return rhs;
 
@@ -460,9 +518,13 @@ pub const Value = union(enum) {
         return equal(lhs, rhs).not();
     }
 
-    pub fn less(lhs: Value, rhs: Value) Value {
+    pub fn less(lhs_n: Value, rhs_n: Value) Value {
+        const lhs = lhs_n.depointerize();
+        const rhs = rhs_n.depointerize();
+
         if (lhs == .runtime_error) return lhs;
         if (rhs == .runtime_error) return rhs;
+
         return switch (lhs) {
             .integer => |i| switch (rhs) {
                 .integer => |j| Value{ .boolean = i < j },
@@ -486,9 +548,13 @@ pub const Value = union(enum) {
         };
     }
 
-    pub fn greater(lhs: Value, rhs: Value) Value {
+    pub fn greater(lhs_n: Value, rhs_n: Value) Value {
+        const lhs = lhs_n.depointerize();
+        const rhs = rhs_n.depointerize();
+
         if (lhs == .runtime_error) return lhs;
         if (rhs == .runtime_error) return rhs;
+
         return switch (lhs) {
             .integer => |i| switch (rhs) {
                 .integer => |j| Value{ .boolean = i > j },
@@ -512,8 +578,12 @@ pub const Value = union(enum) {
         };
     }
 
-    pub fn greaterEqual(lhs: Value, rhs: Value) Value {
+    pub fn greaterEqual(lhs_n: Value, rhs_n: Value) Value {
+        const lhs = lhs_n.depointerize();
+        const rhs = rhs_n.depointerize();
+
         const gthen = greater(lhs, rhs);
+
         if (gthen == .runtime_error) return gthen;
         std.debug.assert(gthen == .boolean);
         if (gthen.boolean == true) return Value{ .boolean = true };
@@ -524,8 +594,12 @@ pub const Value = union(enum) {
         return Value{ .boolean = eql.boolean };
     }
 
-    pub fn lessEqual(lhs: Value, rhs: Value) Value {
+    pub fn lessEqual(lhs_n: Value, rhs_n: Value) Value {
+        const lhs = lhs_n.depointerize();
+        const rhs = rhs_n.depointerize();
+
         const lthen = less(lhs, rhs);
+
         if (lthen == .runtime_error) return lthen;
         std.debug.assert(lthen == .boolean);
         if (lthen.boolean == true) return Value{ .boolean = true };
@@ -536,8 +610,11 @@ pub const Value = union(enum) {
         return Value{ .boolean = eql.boolean };
     }
 
-    pub fn neg(self: Value) Value {
-        if (self == .runtime_error) return self;
+    pub fn neg(self_n: Value) Value {
+        if (self_n == .runtime_error) return self_n;
+
+        const self = if (self_n == .ptr) self_n.ptr.* else self_n;
+
         return switch (self) {
             .integer => |i| Value{ .integer = -i },
             .float => |f| Value{ .float = -f },
@@ -550,6 +627,19 @@ pub const Value = union(enum) {
         if (val == .runtime_error) return val;
         std.debug.assert(val == .boolean);
         return Value{ .boolean = !val.boolean };
+    }
+
+    pub fn index(self_n: Value, i_n: Value) Value {
+        const self = self_n.depointerize();
+        const i = i_n.depointerize();
+
+        if (self == .runtime_error) return self;
+        if (i == .runtime_error) return i;
+        return switch (self) {
+            .string => |s| s.index(i),
+            .list => |l| l.index(i),
+            else => Value.err("Invalid type", "Value is not indexable", null),
+        };
     }
 
     pub fn format(
@@ -589,6 +679,7 @@ pub const Value = union(enum) {
                 }
                 try writer.writeByte(']');
             },
+            .ptr => |p| try writer.print("{}", .{p.*}),
         }
     }
 };
@@ -630,7 +721,9 @@ pub const Result = union(enum) {
     }
 };
 
-pub fn safeIntCast(comptime TO: type, v: Value) !TO {
+pub fn safeIntCast(comptime TO: type, v_n: Value) !TO {
+    const v = v_n.depointerize();
+
     // check if value is to big to fit in the type
     const max = std.math.maxInt(TO);
     const min = std.math.minInt(TO);
@@ -657,7 +750,9 @@ pub fn safeIntCast(comptime TO: type, v: Value) !TO {
     }
 }
 
-pub fn safeFloatCast(comptime TO: type, v: Value) !TO {
+pub fn safeFloatCast(comptime TO: type, v_n: Value) !TO {
+    const v = v_n.depointerize();
+
     const max = std.math.floatMax(TO);
     const min = std.math.floatMin(TO);
 
@@ -685,12 +780,14 @@ pub fn safeFloatCast(comptime TO: type, v: Value) !TO {
 }
 
 pub fn safeBoolCast(v: Value) !bool {
-    const new = v.convertToBool();
+    const new = v.convertToBool(); // will handle pointer
     if (new == .runtime_error) return error.InvalidCast;
     return new.boolean;
 }
 
-pub fn safeStrCast(allocator: std.mem.Allocator, v: Value) !types.String {
+pub fn safeStrCast(allocator: std.mem.Allocator, v_n: Value) !types.String {
+    const v = v_n.depointerize();
+
     return switch (v) {
         .string => |s| s,
         .char => |c| types.String{ .allocator = allocator, .value = &[_]u8{c}, .mem_type = .stack },
@@ -704,7 +801,8 @@ pub fn safeStrCast(allocator: std.mem.Allocator, v: Value) !types.String {
     };
 }
 
-pub fn safeListCast(allocator: std.mem.Allocator, v: Value) !*types.List {
+pub fn safeListCast(allocator: std.mem.Allocator, v_n: Value) !*types.List {
+    const v = v_n.depointerize();
     return switch (v) {
         .string => |s| blk: {
             const new = types.List.init(allocator);
@@ -719,7 +817,9 @@ pub fn safeListCast(allocator: std.mem.Allocator, v: Value) !*types.List {
     };
 }
 
-pub fn castToSymbolValue(allocator: std.mem.Allocator, v: Value, ty: TypeVal) !SymbolTable.SymbolValue {
+pub fn castToSymbolValue(allocator: std.mem.Allocator, v_n: Value, ty: TypeVal) !SymbolTable.SymbolValue {
+    const v = v_n.depointerize();
+
     const SymVal = SymbolTable.SymbolValue;
     return switch (ty) {
         .i8 => SymVal{ .i8 = try safeIntCast(i8, v) },
@@ -784,7 +884,8 @@ pub fn getTypeValFromSymbolValue(v: SymbolTable.SymbolValue) !TypeVal {
     };
 }
 
-pub fn checkRuntimeError(value: Value, orgin: *const Node) ?Result {
+pub fn checkRuntimeError(value_n: Value, orgin: *const Node) ?Result {
+    const value = value_n.depointerize();
     if (value == .runtime_error) {
         var err = value.runtime_error;
         if (err.pos == null) err.pos = orgin.getPos();
@@ -796,12 +897,25 @@ pub fn checkRuntimeError(value: Value, orgin: *const Node) ?Result {
 // returns a runtime error if there is one
 pub fn checkRuntimeErrorOrSignal(result: Result, orgin: *const Node) ?Result {
     switch (result) {
-        .value => |v| if (v == .runtime_error) {
-            var err = v.runtime_error;
-            if (err.pos == null) err.pos = orgin.getPos();
-            return Result{ .value = .{ .runtime_error = err } };
-        },
+        .value => |v| return checkRuntimeError(v, orgin),
         .signal => |s| return Result{ .signal = s },
     }
     return null;
+}
+
+pub fn castToIndex(v_n: Value, len: usize) !usize {
+    const v = v_n.depointerize();
+
+    return switch (v) {
+        .integer => |int| blk: {
+            if (int < 0) break :blk len - @as(usize, @intCast(int * -1)); //
+            break :blk @intCast(int);
+        },
+        .float => blk: {
+            const int = try safeIntCast(i65, v);
+            if (int < 0) break :blk len + @as(usize, @intCast(int * -1));
+            break :blk @intCast(int);
+        },
+        else => error.InvalidCast,
+    };
 }

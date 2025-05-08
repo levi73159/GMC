@@ -102,6 +102,7 @@ pub fn evalNode(self: Self, node: *const Node) rt.Result {
         .call => self.evalCall(node),
         .returnstmt => self.evalReturn(node),
         .array => self.evalArray(node),
+        .index_access => self.evalIndex(node),
     };
 }
 
@@ -247,23 +248,40 @@ fn evalVarAssign(self: Self, og_node: *const Node) rt.Result {
     if (checkRuntimeErrorOrSignal(rtresult, node.value)) |err| return err;
     const value = rtresult.value;
 
-    const old_symbol = self.symbols.get(node.identifier.lexeme) orelse {
-        return rt.Result.err("Symbol not found", "The symbol was not found", node.identifier.pos);
-    };
-    if (self.static) return rt.Result.val(rt.castToValue(old_symbol.value));
-    const typeval = rt.getTypeValFromSymbolValue(old_symbol.value) catch {
-        return rt.Result.err("Invalid Cast", "Can't convert the value into the type", og_node.getPos());
-    };
-    const symval = rt.castToSymbolValue(self.allocator, value, typeval) catch {
-        return rt.Result.err("Invalid Cast", "The value can't be converted to the type (could be due to the value is too big or small)", node.value.getPos());
-    };
+    // it can either be a identifier or an index access
+    switch (node.left.*) {
+        .identifier => |ident| {
+            const old_symbol = self.symbols.get(ident.lexeme) orelse {
+                return rt.Result.err("Symbol not found", "The symbol was not found", ident.pos);
+            };
+            if (self.static) return rt.Result.val(rt.castToValue(old_symbol.value));
+            const typeval = rt.getTypeValFromSymbolValue(old_symbol.value) catch {
+                return rt.Result.err("Invalid Cast", "Can't convert the value into the type", og_node.getPos());
+            };
+            const symval = rt.castToSymbolValue(self.allocator, value, typeval) catch {
+                return rt.Result.err("Invalid Cast", "The value can't be converted to the type (could be due to the value is too big or small)", node.value.getPos());
+            };
 
-    self.symbols.set(node.identifier.lexeme, symval) catch |err| switch (err) {
-        error.SymbolDoesNotExist => return rt.Result.err("Symbol not found", "The symbol given was not found", node.identifier.pos),
-        error.SymbolIsImmutable => return rt.Result.err("Symbol is immutable", "The symbol is immutable (const)", og_node.getPos()),
-        error.InvalidTypes => return rt.Result.err("Invalid Types", "Can't change a symbol's type", og_node.getPos()),
-    };
-    return rt.Result.val(rt.castToValue(symval));
+            self.symbols.set(ident.lexeme, symval) catch |err| switch (err) {
+                error.SymbolDoesNotExist => return rt.Result.err("Symbol not found", "The symbol given was not found", ident.pos),
+                error.SymbolIsImmutable => return rt.Result.err("Symbol is immutable", "The symbol is immutable (const)", og_node.getPos()),
+                error.InvalidTypes => return rt.Result.err("Invalid Types", "Can't change a symbol's type", og_node.getPos()),
+            };
+            return rt.Result.val(rt.castToValue(symval));
+        },
+        .index_access => {
+            const target = self.evalNode(node.left);
+            if (checkRuntimeErrorOrSignal(target, node.left)) |err| return err;
+            if (target.value != .ptr) return rt.Result.err("Invalid Index Access", "The value is not mutable", node.left.getPos()); // ptr = mutable reference
+            const target_ptr = target.value.ptr;
+
+            if (self.static) return rt.Result.val(value);
+
+            target_ptr.* = value;
+            return rt.Result.val(value);
+        },
+        else => return rt.Result.err("Invalid Assignment", "The left side of the assignment must be an identifier or an index access", node.left.getPos()),
+    }
 }
 
 fn evalIfStmt(self: Self, og_node: *const Node) rt.Result {
@@ -538,4 +556,18 @@ fn evalArray(self: Self, og_node: *const Node) rt.Result {
 
     _ = list.clone(); // increment ref count so when we deinit the list it doesn't free the memory
     return rt.Result.val(.{ .list = list });
+}
+
+fn evalIndex(self: Self, og_node: *const Node) rt.Result {
+    const node = og_node.index_access;
+    const value = self.evalNode(node.value);
+    if (checkRuntimeErrorOrSignal(value, node.value)) |err| return err;
+    const index = self.evalNode(node.index);
+    if (checkRuntimeErrorOrSignal(index, node.index)) |err| return err;
+    const val_value = value.value;
+    const val_index = index.value;
+
+    const result = val_value.index(val_index);
+    if (checkRuntimeError(result, og_node)) |err| return err;
+    return rt.Result.val(result);
 }
