@@ -516,11 +516,11 @@ fn parseUnary(self: *Self) ParseError!*const tree.Node {
 }
 
 fn parsePrimary(self: *Self) ParseError!*const tree.Node {
-    const left = try self.parseBasePrimary();
-    if (self.consume(.left_bracket)) |_| {
+    var left = try self.parseBasePrimary();
+    while (self.consume(.left_bracket)) |_| {
         const index = try self.parseExpression();
         _ = self.consume(.right_bracket) orelse return self.badToken(error.MissingBracket);
-        return self.allocNode(tree.Node{ .index_access = .{ .value = left, .index = index } });
+        left = try self.allocNode(tree.Node{ .index_access = .{ .value = left, .index = index } });
     }
 
     return left;

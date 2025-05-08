@@ -39,7 +39,7 @@ pub fn eval(self: Self, nodes: []const *const Node) void {
         if (result == .signal) {
             result = rt.Result.err("Signal error", "Can't handle signal at current scope", node.getPos());
         }
-        defer result.value.deinit(self.allocator);
+        defer result.value.deinit();
         switch (result.value) {
             .runtime_error => |err| {
                 std.debug.print("Runtime error: {s}\n", .{err.msg});
@@ -62,7 +62,7 @@ pub fn evalResult(self: Self, nodes: []const *const Node) rt.Result {
     for (nodes) |node| {
         last_value = self.evalNode(node);
         if (last_value == .signal) return last_value;
-        defer last_value.value.deinit(self.allocator);
+        defer last_value.value.deinit();
         switch (last_value.value) {
             .runtime_error => |err| {
                 std.debug.print("Runtime error: {s}\n", .{err.msg});
@@ -135,7 +135,7 @@ fn evalBlock(self: Self, og_node: *const Node) rt.Result {
     for (og_node.block.nodes) |node| {
         last_value = interpreter.evalNode(node);
         if (checkRuntimeErrorOrSignal(last_value, node)) |err| return err;
-        last_value.value.deinit(self.allocator);
+        last_value.value.deinit();
     }
     return last_value;
 }
@@ -246,10 +246,9 @@ fn evalVarAssign(self: Self, og_node: *const Node) rt.Result {
     const node = og_node.var_assign;
     const rtresult = self.evalNode(node.value);
     if (checkRuntimeErrorOrSignal(rtresult, node.value)) |err| return err;
-    const value_unclone = rtresult.value;
-    defer value_unclone.deinit(self.allocator);
-
-    const value = value_unclone.clone();
+    const orignal = rtresult.value;
+    const value = orignal.clone();
+    orignal.deinit();
 
     // it can either be a identifier or an index access
     switch (node.left.*) {
@@ -275,15 +274,17 @@ fn evalVarAssign(self: Self, og_node: *const Node) rt.Result {
         .index_access => {
             const target = self.evalNode(node.left);
             if (checkRuntimeErrorOrSignal(target, node.left)) |err| return err;
-            if (target.value != .ptr) return rt.Result.err("Invalid Index Access", "The value is not mutable", node.left.getPos()); // ptr = mutable reference
-            const target_ptr = target.value.ptr;
+            const target_val = target.value;
 
-            if (self.static) return rt.Result.val(value);
-
-            target_ptr.* = value;
-            return rt.Result.val(value);
+            switch (target_val) {
+                .ptr => |p| {
+                    p.* = value;
+                    return rt.Result.val(value);
+                },
+                else => return rt.Result.err("Not Mutable", "The target is not mutable", node.left.getPos()),
+            }
         },
-        else => return rt.Result.err("Invalid Assignment", "The left side of the assignment must be an identifier or an index access", node.left.getPos()),
+        else => return rt.Result.err("Not Mutable", "The target is not mutable", node.left.getPos()),
     }
 }
 
@@ -300,7 +301,6 @@ fn evalIfStmt(self: Self, og_node: *const Node) rt.Result {
     if (boolean_value.boolean) {
         const then = self.evalNode(node.then);
         if (checkRuntimeErrorOrSignal(then, node.then)) |err| return err;
-        return then;
     } else {
         if (node.else_node) |else_node| {
             const else_value = self.evalNode(else_node);
@@ -478,10 +478,10 @@ fn handleFunctionResult(self: Self, func: ty.Function, result: rt.Result, og_nod
                 .base => |basef| {
                     const typed_value = rt.castToSymbolValue(self.allocator, v, basef.return_type) catch {
                         const msg = std.fmt.allocPrint(self.allocator, "Function return an expected type, Expected {s} got {s}", .{ @tagName(basef.return_type), @tagName(result.value) }) catch unreachable;
-                        return rt.Result.errHeap("Invalid return type", msg, basef.return_type_pos);
+                        return rt.Result.errHeap(self.allocator, "Invalid return type", msg, basef.return_type_pos);
                     };
                     const value = rt.castToValue(typed_value);
-                    value.deinit(self.allocator); // free memory since were cloning a heap value
+                    value.deinit(); // free memory since were cloning a heap value
                     return rt.Result.val(v);
                 },
                 .bultin => {
@@ -497,7 +497,7 @@ fn handleFunctionResult(self: Self, func: ty.Function, result: rt.Result, og_nod
         .base => |basef| {
             if (basef.return_type != .void) {
                 const msg = std.fmt.allocPrint(self.allocator, "Function return an expected type, Expected {s} got void", .{@tagName(func.base.return_type)}) catch unreachable;
-                return rt.Result.errHeap("Invalid return type", msg, func.base.return_type_pos);
+                return rt.Result.errHeap(self.allocator, "Invalid return type", msg, func.base.return_type_pos);
             }
             return rt.Result.none();
         },
@@ -557,7 +557,7 @@ fn evalArray(self: Self, og_node: *const Node) rt.Result {
         list.append(result.value) catch unreachable;
     }
 
-    return rt.Result.val(.{ .list = list.ref() });
+    return rt.Result.val(.{ .list = list.clone() });
 }
 
 fn evalIndex(self: Self, og_node: *const Node) rt.Result {
@@ -569,7 +569,7 @@ fn evalIndex(self: Self, og_node: *const Node) rt.Result {
     const val_value = value.value;
     const val_index = index.value;
 
-    const result = val_value.index(val_index);
-    if (checkRuntimeError(result, og_node)) |err| return err;
-    return rt.Result.val(result);
+    const value_at_index = val_value.index(val_index);
+    if (checkRuntimeError(value_at_index, og_node)) |err| return err;
+    return rt.Result.val(value_at_index.ref());
 }

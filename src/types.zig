@@ -16,9 +16,9 @@ pub const Error = struct {
     extra: ?[]const u8,
     pos: ?Pos,
 
-    extra_allocated: bool = false,
-    pub fn deinit(self: Error, allocator: std.mem.Allocator) void {
-        if (self.extra_allocated) {
+    extra_allocated: ?std.mem.Allocator = null, // null = false (default aka stack), value = allocated
+    pub fn deinit(self: Error) void {
+        if (self.extra_allocated) |allocator| {
             if (self.extra) |extra| allocator.free(extra);
         }
     }
@@ -193,13 +193,13 @@ pub const BaseFunction = struct {
 
         if (self.params.len != args.len) {
             const msg = std.fmt.allocPrint(base.allocator, "Expected {d} arguments got {d}", .{ self.params.len, args.len }) catch unreachable;
-            return Result.errHeap("Invalid number of arguments", msg, null);
+            return Result.errHeap(base.allocator, "Invalid number of arguments", msg, null);
         }
 
         for (self.params, args) |param, arg| {
             const symbol_value = rt.castToSymbolValue(base.allocator, arg, param.type.value.type) catch {
                 const msg2 = std.fmt.allocPrint(base.allocator, "Can't cast {s} to {s}", .{ @tagName(arg), @tagName(param.type.value.type) }) catch unreachable;
-                return Result.errHeap("Invalid cast", msg2, null);
+                return Result.errHeap(base.allocator, "Invalid cast", msg2, null);
             };
 
             symbols.add(param.name.lexeme, SymbolTable.Symbol{ .value = symbol_value, .is_const = true }) catch @panic("out of memory");
@@ -227,7 +227,7 @@ pub const BaseFunction = struct {
         for (self.params) |param| {
             const symbol_value = rt.castToSymbolValue(base.allocator, Value.none, param.type.value.type) catch {
                 const msg2 = std.fmt.allocPrint(base.allocator, "Can't cast {s} to {s}", .{ @tagName(Value.none), @tagName(param.type.value.type) }) catch unreachable;
-                return Result.errHeap("Invalid cast", msg2, null);
+                return Result.errHeap(base.allocator, "Invalid cast", msg2, null);
             };
 
             symbols.add(param.name.lexeme, SymbolTable.Symbol{ .value = symbol_value, .is_const = true }) catch @panic("out of memory");
@@ -243,7 +243,7 @@ pub const BaseFunction = struct {
                 .@"return" => |v| {
                     _ = rt.castToSymbolValue(allocator, v, self.return_type) catch {
                         const msg = std.fmt.allocPrint(base.allocator, "Function return an expected type, Expected {s} got {s}", .{ @tagName(self.return_type), @tagName(ret.value) }) catch unreachable;
-                        return Result.errHeap("Invalid return type", msg, self.return_type_pos);
+                        return Result.errHeap(base.allocator, "Invalid return type", msg, self.return_type_pos);
                     };
                     // we can cast the value
                     return null;
@@ -255,7 +255,7 @@ pub const BaseFunction = struct {
 
         if (self.return_type != .void) {
             const msg = std.fmt.allocPrint(base.allocator, "Function return an expected type, Expected {s} got void", .{@tagName(self.return_type)}) catch unreachable;
-            return Result.errHeap("Invalid return type", msg, self.return_type_pos);
+            return Result.errHeap(base.allocator, "Invalid return type", msg, self.return_type_pos);
         }
 
         return null;
@@ -320,19 +320,30 @@ pub const List = struct {
     pub fn deinit(self: *Self) void {
         if (self.capacity == 0) return;
         self.refs -= 1;
+        for (self.items) |item| item.deinit();
+
         if (self.refs == 0) {
+            // std.log.debug("Deinit list: {}", .{Value{ .list = self }});
             self.clear();
             self.allocator.destroy(self);
         }
     }
 
+    // returns the cloned list (does not decrese or increase the ref count)
     pub fn clone(self: *Self) *Self {
-        const list = Self.fromItems(self.allocator, self.items);
+        // std.log.debug("Clone list: {}", .{Value{ .list = self }});
+        const cloned_items = self.allocator.alloc(Value, self.items.len) catch unreachable;
+        defer self.allocator.free(cloned_items);
+        for (cloned_items, self.items) |*new, old| new.* = old.clone();
+        const list = Self.fromItems(self.allocator, cloned_items);
         return list;
     }
 
+    // returns itself and increases the ref count by one
     pub fn ref(self: *Self) *Self {
+        // std.log.debug("Ref list: {}", .{Value{ .list = self }});
         self.refs += 1;
+        for (self.items) |item| _ = item.ref();
         return self;
     }
 
@@ -395,6 +406,7 @@ pub const List = struct {
         defer self.deinit();
         const iv = rt.castToIndex(i, self.items.len) catch return Value.err("IndexError", "Can't cast to index", null);
         if (iv < 0 or iv >= self.items.len) return Value.err("IndexError", "Index out of range", null);
+        _ = self.items[iv].ref();
         return Value{ .ptr = &self.items[iv] };
     }
 };

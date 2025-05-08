@@ -16,9 +16,9 @@ pub fn err(name: []const u8, msg: ?[]const u8) rt.Result {
 
 pub fn errHeap(allocator: std.mem.Allocator, name: []const u8, comptime fmt: []const u8, args: anytype) rt.Result {
     const msg = std.fmt.allocPrint(allocator, fmt, args) catch unreachable;
-    return rt.Result.errHeap(name, msg, null);
+    return rt.Result.errHeap(allocator, name, msg, null);
 }
 
-pub fn end(args: []const rt.Value, base: Interpreter) void {
-    for (args) |arg| arg.deinit(base.allocator);
+pub fn end(args: []const rt.Value) void {
+    for (args) |arg| arg.deinit();
 }

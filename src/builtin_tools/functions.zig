@@ -15,7 +15,7 @@ const val = tools.val;
 pub usingnamespace @import("casts.zig");
 
 pub fn print(args: []const rt.Value, base: Interpreter) rt.Result {
-    defer end(args, base);
+    defer end(args);
     if (base.static) return none();
 
     const stdout = std.io.getStdOut().writer();
@@ -30,7 +30,7 @@ pub fn print(args: []const rt.Value, base: Interpreter) rt.Result {
 }
 
 pub fn println(args: []const rt.Value, base: Interpreter) rt.Result {
-    defer end(args, base);
+    defer end(args);
     if (base.static) return none();
 
     const stdout = std.io.getStdOut().writer();
@@ -46,7 +46,7 @@ pub fn println(args: []const rt.Value, base: Interpreter) rt.Result {
 }
 
 pub fn throw(args: []const rt.Value, base: Interpreter) rt.Result {
-    defer end(args, base);
+    defer end(args);
 
     if (args.len != 2) return err("throw", "Expected 2 arguments");
     const err_name = args[0];
@@ -60,11 +60,11 @@ pub fn throw(args: []const rt.Value, base: Interpreter) rt.Result {
     };
 
     const raw_msg = base.allocator.dupe(u8, msg.value) catch unreachable;
-    return rt.Result.errHeap(name.value, raw_msg, null);
+    return rt.Result.errHeap(base.allocator, name.value, raw_msg, null);
 }
 
 pub fn exit(args: []const rt.Value, base: Interpreter) rt.Result {
-    defer end(args, base);
+    defer end(args);
 
     if (args.len == 0) std.process.exit(0);
     if (args.len != 1) return err("exit", "Expected 1 or 0 arguments");
@@ -76,21 +76,25 @@ pub fn exit(args: []const rt.Value, base: Interpreter) rt.Result {
     std.process.exit(code);
 }
 
-pub fn len(args: []const rt.Value, base: Interpreter) rt.Result {
-    defer end(args, base);
+pub fn len(args: []const rt.Value, _: Interpreter) rt.Result {
+    defer end(args);
 
     if (args.len != 1) return err("len", "Expected 1 argument");
 
-    const arg = args[0];
-    return switch (arg) {
+    const arg = args[0].depointerize();
+    const result = switch (arg) {
         .string => |s| val(.{ .integer = s.value.len }),
-        .list => |l| val(.{ .integer = l.items.len }),
+        .list => |l| blk: {
+            break :blk val(.{ .integer = l.items.len });
+        },
         else => err("len", "Expected a sizeable type"),
     };
+
+    return result;
 }
 
 pub fn input(args: []const rt.Value, base: Interpreter) rt.Result {
-    defer end(args, base);
+    defer end(args);
     if (base.static) return val(.{ .string = ty.String.init(base.allocator, "", false) catch unreachable }); // not a static function
 
     const stdout = std.io.getStdOut().writer();
@@ -110,7 +114,7 @@ pub fn input(args: []const rt.Value, base: Interpreter) rt.Result {
 }
 
 pub fn eval(args: []const rt.Value, base: Interpreter) rt.Result {
-    defer end(args, base);
+    defer end(args);
 
     const Lexer = @import("../Lexer.zig");
     const Parser = @import("../Parser.zig");

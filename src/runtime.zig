@@ -102,11 +102,12 @@ pub const Value = union(enum) {
         };
     }
 
-    pub fn deinit(self: Value, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: Value) void {
         switch (self) {
             .string => |s| s.deinit(),
-            .runtime_error => |e| e.deinit(allocator),
+            .runtime_error => |e| e.deinit(),
             .list => |l| l.deinit(),
+            .ptr => |p| p.deinit(),
             else => {},
         }
     }
@@ -659,6 +660,7 @@ pub const Value = union(enum) {
         _: std.fmt.FormatOptions,
         writer: std.io.AnyWriter,
     ) !void {
+        // std.debug.print("Value: {s}\n", .{@tagName(self)});
         switch (self) {
             .integer => |i| try writer.print("{}", .{i}),
             .float => |f| try writer.print("{d}", .{f}),
@@ -717,9 +719,9 @@ pub const Result = union(enum) {
         };
     }
 
-    pub fn errHeap(msg: []const u8, extra: []const u8, pos: ?Pos) Result {
+    pub fn errHeap(allocator: std.mem.Allocator, msg: []const u8, extra: []const u8, pos: ?Pos) Result {
         var rterr = Value.err(msg, extra, pos);
-        rterr.runtime_error.extra_allocated = true;
+        rterr.runtime_error.extra_allocated = allocator;
         return Result{
             .value = rterr,
         };

@@ -12,7 +12,7 @@ const none = tools.none;
 const val = tools.val;
 
 pub fn asInt(args: []const rt.Value, base: Interpreter) rt.Result {
-    defer end(args, base);
+    defer end(args);
 
     if (args.len != 1) return err("asInt", "Expected 1 argument");
 
@@ -29,7 +29,7 @@ pub fn asInt(args: []const rt.Value, base: Interpreter) rt.Result {
 }
 
 pub fn asFloat(args: []const rt.Value, base: Interpreter) rt.Result {
-    defer end(args, base);
+    defer end(args);
 
     if (args.len != 1) return err("asFloat", "Expected 1 argument");
 
@@ -46,7 +46,7 @@ pub fn asFloat(args: []const rt.Value, base: Interpreter) rt.Result {
 }
 
 pub fn asChar(args: []const rt.Value, base: Interpreter) rt.Result {
-    defer end(args, base);
+    defer end(args);
 
     if (args.len != 1) return err("asChar", "Expected 1 argument");
 
@@ -63,7 +63,7 @@ pub fn asChar(args: []const rt.Value, base: Interpreter) rt.Result {
 }
 
 pub fn asString(args: []const rt.Value, base: Interpreter) rt.Result {
-    defer end(args, base);
+    defer end(args);
 
     if (args.len != 1) return err("asString", "Expected 1 argument");
 
@@ -80,7 +80,7 @@ pub fn asString(args: []const rt.Value, base: Interpreter) rt.Result {
 }
 
 pub fn asBool(args: []const rt.Value, base: Interpreter) rt.Result {
-    defer end(args, base);
+    defer end(args);
 
     if (args.len != 1) return err("asBool", "Expected 1 argument");
 
@@ -97,7 +97,7 @@ pub fn asBool(args: []const rt.Value, base: Interpreter) rt.Result {
 }
 
 pub fn asList(args: []const rt.Value, base: Interpreter) rt.Result {
-    defer end(args, base);
+    defer end(args);
 
     if (args.len != 1) return err("asList", "Expected 1 argument");
 
@@ -114,7 +114,7 @@ pub fn asList(args: []const rt.Value, base: Interpreter) rt.Result {
 }
 
 pub fn toString(args: []const rt.Value, base: Interpreter) rt.Result {
-    defer end(args, base);
+    defer end(args);
 
     if (args.len == 0) {
         return val(.{ .string = ty.String.init(base.allocator, "", false) catch unreachable });
@@ -132,7 +132,7 @@ pub fn toString(args: []const rt.Value, base: Interpreter) rt.Result {
 }
 
 pub fn toInt(args: []const rt.Value, base: Interpreter) rt.Result {
-    defer end(args, base);
+    defer end(args);
 
     if (args.len == 0) return val(.{ .integer = 0 });
     if (args.len != 1) return err("toInt", "Expected 1 argument");
@@ -148,7 +148,7 @@ pub fn toInt(args: []const rt.Value, base: Interpreter) rt.Result {
 }
 
 pub fn toFloat(args: []const rt.Value, base: Interpreter) rt.Result {
-    defer end(args, base);
+    defer end(args);
 
     if (args.len == 0) return val(.{ .float = 0 });
     if (args.len != 1) return err("toFloat", "Expected 1 argument");
