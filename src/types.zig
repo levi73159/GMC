@@ -302,17 +302,50 @@ pub const List = struct {
     items: []Value = &.{},
     capacity: u64 = 0,
     refs: u32 = 1,
+    immutable: bool = false,
 
     const Self = @This();
 
-    pub fn init(allocator: std.mem.Allocator) *Self {
+    pub fn init(allocator: std.mem.Allocator, immutable: bool) *Self {
         const list = allocator.create(Self) catch unreachable;
-        list.* = Self{ .allocator = allocator };
+        list.* = Self{ .allocator = allocator, .immutable = immutable };
+        return list;
+    }
+
+    pub fn recursiveMutablityCurrent(self: *Self) *Self {
+        return self.recursiveMutablity(self.immutable);
+    }
+
+    pub fn recursiveMutablity(self: *Self, immutable: bool) *Self {
+        self.immutable = immutable;
+        for (self.items) |item| switch (item) {
+            .list => |l| _ = l.recursiveMutablity(immutable),
+            else => {},
+        };
+
+        return self;
+    }
+
+    pub fn initMutable(allocator: std.mem.Allocator) *Self {
+        const list = allocator.create(Self) catch unreachable;
+        list.* = Self{ .allocator = allocator, .immutable = false };
+        return list;
+    }
+
+    pub fn initImmutable(allocator: std.mem.Allocator) *Self {
+        const list = allocator.create(Self) catch unreachable;
+        list.* = Self{ .allocator = allocator, .immutable = true };
         return list;
     }
 
     pub fn fromItems(allocator: std.mem.Allocator, items: []const Value) *Self {
-        const list = Self.init(allocator);
+        const list = Self.initMutable(allocator);
+        list.appendSlice(items) catch unreachable;
+        return list;
+    }
+
+    pub fn fromItemsImmutable(allocator: std.mem.Allocator, items: []const Value) *Self {
+        const list = Self.initImmutable(allocator);
         list.appendSlice(items) catch unreachable;
         return list;
     }
@@ -320,18 +353,17 @@ pub const List = struct {
     pub fn deinit(self: *Self) void {
         if (self.capacity == 0) return;
         self.refs -= 1;
+
         for (self.items) |item| item.deinit();
 
         if (self.refs == 0) {
-            // std.log.debug("Deinit list: {}", .{Value{ .list = self }});
-            self.clear();
+            self.clearAndFree();
             self.allocator.destroy(self);
         }
     }
 
     // returns the cloned list (does not decrese or increase the ref count)
     pub fn clone(self: *Self) *Self {
-        // std.log.debug("Clone list: {}", .{Value{ .list = self }});
         const cloned_items = self.allocator.alloc(Value, self.items.len) catch unreachable;
         defer self.allocator.free(cloned_items);
         for (cloned_items, self.items) |*new, old| new.* = old.clone();
@@ -341,35 +373,43 @@ pub const List = struct {
 
     // returns itself and increases the ref count by one
     pub fn ref(self: *Self) *Self {
-        // std.log.debug("Ref list: {}", .{Value{ .list = self }});
         self.refs += 1;
         for (self.items) |item| _ = item.ref();
         return self;
     }
 
-    pub fn clear(self: *Self) void {
+    fn clearAndFree(self: *Self) void {
         if (self.capacity == 0) return;
         self.allocator.free(self.items.ptr[0..self.capacity]);
         self.items = &.{};
         self.capacity = 0;
     }
 
+    pub fn clear(self: *Self) !void {
+        if (self.immutable) return error.ImmutableList;
+        if (self.capacity == 0) return;
+        self.items.len = 0;
+    }
+
     pub fn append(self: *Self, value: Value) !void {
+        if (self.immutable) return error.ImmutableList;
         try self.needGrow();
         self.items.ptr[self.items.len] = value;
         self.items.len += 1;
     }
 
     pub fn appendSlice(self: *Self, values: []const Value) !void {
+        if (self.immutable) return error.ImmutableList;
         if (self.capacity < values.len) try self.resize(@intCast(self.capacity + values.len)); // grow if need
         @memcpy(self.items.ptr[self.items.len .. self.items.len + values.len], values);
         self.items.len += values.len;
     }
 
-    pub fn pop(self: *Self) ?Value {
+    pub fn pop(self: *Self) !?Value {
+        if (self.immutable) return error.ImmutableList;
         if (self.items.len == 0) return null;
         self.items.len -= 1;
-        if (self.items.len == 0) self.clear(); // dealloc memory if empty
+        if (self.items.len == 0) self.clearAndFree(); // dealloc memory if empty
         return self.items[self.items.len];
     }
 
@@ -378,7 +418,9 @@ pub const List = struct {
         if (self.capacity <= self.items.len + 1) try self.grow();
     }
 
+    // for immutable lists resize is a no-op
     pub fn resize(self: *Self, len: usize) !void {
+        if (self.immutable) return;
         std.debug.assert(len > self.items.len);
         const old_len = self.items.len;
         self.items = try self.allocator.realloc(self.items.ptr[0..self.capacity], len);
@@ -407,6 +449,15 @@ pub const List = struct {
         const iv = rt.castToIndex(i, self.items.len) catch return Value.err("IndexError", "Can't cast to index", null);
         if (iv < 0 or iv >= self.items.len) return Value.err("IndexError", "Index out of range", null);
         _ = self.items[iv].ref();
-        return Value{ .ptr = &self.items[iv] };
+        if (self.immutable) {
+            return self.items[iv];
+        } else {
+            return Value{ .ptr = &self.items[iv] };
+        }
+    }
+
+    pub fn setImmutable(self: *Self, immutable: bool) *Self {
+        self.immutable = immutable;
+        return self;
     }
 };

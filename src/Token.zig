@@ -90,7 +90,9 @@ pub const TypeValue = enum {
     char,
 
     // objects?
+    // list is mutable and imlist is immutable hince [im]mutable
     list,
+    imlist,
 };
 
 pub const Value = union(enum) {

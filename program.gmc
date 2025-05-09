@@ -1,11 +1,7 @@
-const list multi_list = [
+const imlist multi_list = [
     [1, 2, 3],
-    [4, 5, 6],
-    [7, 8, 9]
 ];
 
-for (var u64 i = 0; i < len(multi_list); i++;) {
-    for (var u64 j = 0; j < len(multi_list[i]); j++;) {
-        print(multi_list[i][j]);
-    }
-}
+multi_list[0][0] = 3;
+
+println(multi_list);

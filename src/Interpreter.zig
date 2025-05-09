@@ -248,6 +248,7 @@ fn evalVarAssign(self: Self, og_node: *const Node) rt.Result {
     if (checkRuntimeErrorOrSignal(rtresult, node.value)) |err| return err;
     const orignal = rtresult.value;
     const value = orignal.clone();
+    defer value.deinit();
     orignal.deinit();
 
     // it can either be a identifier or an index access
@@ -275,11 +276,16 @@ fn evalVarAssign(self: Self, og_node: *const Node) rt.Result {
             const target = self.evalNode(node.left);
             if (checkRuntimeErrorOrSignal(target, node.left)) |err| return err;
             const target_val = target.value;
+            // deinit twice because if not it DOESN'T WORK
+            target_val.deinit();
+            target_val.deinit();
 
             switch (target_val) {
                 .ptr => |p| {
-                    p.* = value;
-                    return rt.Result.val(value);
+                    // we need to incrrement the ref count twice one for the pointer and one for the result
+                    // because we deinit
+                    p.* = value.ref();
+                    return rt.Result.val(value.ref());
                 },
                 else => return rt.Result.err("Not Mutable", "The target is not mutable", node.left.getPos()),
             }
@@ -547,17 +553,18 @@ fn evalArray(self: Self, og_node: *const Node) rt.Result {
     const node = og_node.array;
     defer if (!self.static) node.deinit();
 
-    const list = ty.List.init(self.allocator);
+    const list = ty.List.initMutable(self.allocator); // lists are naturally immutable (meaning they cannot change the items within)
     defer list.deinit();
     list.resize(node.items.len) catch unreachable;
 
     for (node.items) |item| {
         const result = self.evalNode(item);
         if (checkRuntimeErrorOrSignal(result, og_node)) |err| return err;
-        list.append(result.value) catch unreachable;
+        defer result.value.deinit();
+        list.append(result.value.clone()) catch unreachable;
     }
 
-    return rt.Result.val(.{ .list = list.clone() });
+    return rt.Result.val(.{ .list = list.clone().recursiveMutablity(true) });
 }
 
 fn evalIndex(self: Self, og_node: *const Node) rt.Result {
@@ -571,5 +578,5 @@ fn evalIndex(self: Self, og_node: *const Node) rt.Result {
 
     const value_at_index = val_value.index(val_index);
     if (checkRuntimeError(value_at_index, og_node)) |err| return err;
-    return rt.Result.val(value_at_index.ref());
+    return rt.Result.val(value_at_index);
 }

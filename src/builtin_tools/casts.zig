@@ -106,7 +106,7 @@ pub fn asList(args: []const rt.Value, base: Interpreter) rt.Result {
         return val(arg);
     }
 
-    const list = rt.safeListCast(base.allocator, arg) catch {
+    const list = rt.safeListCast(base.allocator, arg, true) catch {
         return errHeap(base.allocator, "Invalid Cast", "Can't cast {s} to list", .{@tagName(arg)});
     };
 

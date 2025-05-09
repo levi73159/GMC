@@ -86,18 +86,25 @@ pub const Value = union(enum) {
         } };
     }
 
+    /// NOTE: clones the value and returns it (will remove pointers)
     pub fn clone(self: Value) Value {
         return switch (self) {
             .string => |s| Value{ .string = s.clone() },
             .list => |l| Value{ .list = l.clone() },
+            .ptr => |p| p.clone(),
             else => self,
         };
     }
 
+    /// NOTE: increases the ref count (keep pointers)
     pub fn ref(self: Value) Value {
         return switch (self) {
             .string => |s| Value{ .string = s.ref() },
             .list => |l| Value{ .list = l.ref() },
+            .ptr => |p| blk: {
+                _ = p.ref();
+                break :blk self;
+            },
             else => self,
         };
     }
@@ -150,7 +157,7 @@ pub const Value = union(enum) {
             },
             .list => |l| switch (rhs) {
                 .list => |r| blk: {
-                    const new = types.List.init(allocator);
+                    const new = types.List.initImmutable(allocator);
                     l.deinit();
                     r.deinit();
 
@@ -814,18 +821,21 @@ pub fn safeStrCast(allocator: std.mem.Allocator, v_n: Value) !types.String {
     };
 }
 
-pub fn safeListCast(allocator: std.mem.Allocator, v_n: Value) !*types.List {
+pub fn safeListCast(allocator: std.mem.Allocator, v_n: Value, immutable: bool) !*types.List {
     const v = v_n.depointerize();
     return switch (v) {
         .string => |s| blk: {
-            const new = types.List.init(allocator);
+            const new = types.List.init(allocator, immutable);
             new.resize(s.value.len) catch unreachable;
             for (s.value) |char| {
                 try new.append(Value{ .char = char });
             }
             break :blk new;
         },
-        .list => |l| l,
+        .list => |l| {
+            if (l.immutable == immutable) return l;
+            return l.recursiveMutablity(immutable);
+        },
         else => return error.InvalidCast,
     };
 }
@@ -850,7 +860,8 @@ pub fn castToSymbolValue(allocator: std.mem.Allocator, v_n: Value, ty: TypeVal) 
         .str => SymVal{ .string = try safeStrCast(allocator, v) },
         .char => SymVal{ .char = try safeIntCast(u8, v) },
         .void => SymVal{ .void = {} },
-        .list => SymVal{ .list = try safeListCast(allocator, v) },
+        .list => SymVal{ .list = try safeListCast(allocator, v, false) },
+        .imlist => SymVal{ .list = try safeListCast(allocator, v, true) }, // immutable list
     };
 }
 
