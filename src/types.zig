@@ -299,10 +299,12 @@ pub const Function = union(enum) {
 const GROW_FACTOR = 2;
 pub const List = struct {
     allocator: std.mem.Allocator,
-    items: []Value = &.{},
+    items: []SymbolTable.Symbol = &.{},
     capacity: u64 = 0,
     refs: u32 = 1,
     immutable: bool = false,
+
+    item_type: TypeVal = .any,
 
     const Self = @This();
 
@@ -318,11 +320,13 @@ pub const List = struct {
 
     pub fn recursiveMutablity(self: *Self, immutable: bool) *Self {
         self.immutable = immutable;
-        for (self.items) |item| switch (item) {
-            .list => |l| _ = l.recursiveMutablity(immutable),
-            else => {},
-        };
-
+        for (self.items) |*item| {
+            item.is_const = immutable;
+            switch (item.value) {
+                .list => |l| _ = l.recursiveMutablity(immutable),
+                else => {},
+            }
+        }
         return self;
     }
 
@@ -350,11 +354,23 @@ pub const List = struct {
         return list;
     }
 
+    pub fn fromSymbols(allocator: std.mem.Allocator, items: []const SymbolTable.Symbol) *Self {
+        const list = Self.initMutable(allocator);
+        list.appendSliceSymbols(items) catch unreachable;
+        return list;
+    }
+
+    pub fn fromSymbolsImmutable(allocator: std.mem.Allocator, items: []const SymbolTable.Symbol) *Self {
+        const list = Self.initImmutable(allocator);
+        list.appendSliceSymbols(items) catch unreachable;
+        return list;
+    }
+
     pub fn deinit(self: *Self) void {
         if (self.capacity == 0) return;
         self.refs -= 1;
 
-        for (self.items) |item| item.deinit();
+        for (self.items) |item| item.value.deinit();
 
         if (self.refs == 0) {
             self.clearAndFree();
@@ -364,10 +380,10 @@ pub const List = struct {
 
     // returns the cloned list (does not decrese or increase the ref count)
     pub fn clone(self: *Self) *Self {
-        const cloned_items = self.allocator.alloc(Value, self.items.len) catch unreachable;
+        const cloned_items = self.allocator.alloc(SymbolTable.Symbol, self.items.len) catch unreachable;
         defer self.allocator.free(cloned_items);
         for (cloned_items, self.items) |*new, old| new.* = old.clone();
-        const list = Self.fromItems(self.allocator, cloned_items);
+        const list = Self.fromSymbols(self.allocator, cloned_items); // immutablity doesn't matter cause it is handled by the caller
         return list;
     }
 
@@ -392,20 +408,38 @@ pub const List = struct {
     }
 
     pub fn append(self: *Self, value: Value) !void {
+        const symbol_value = rt.castToSymbolValue(self.allocator, value, self.item_type) catch {
+            return self.appendSlice(&.{value});
+        };
+        return self.appendSymbol(symbol_value);
+    }
+
+    pub fn appendSymbol(self: *Self, value: SymbolTable.SymbolValue) !void {
         if (self.immutable) return error.ImmutableList;
         try self.needGrow();
-        self.items.ptr[self.items.len] = value;
+        self.items.ptr[self.items.len] = SymbolTable.Symbol{ .value = value, .is_const = self.immutable };
         self.items.len += 1;
     }
 
     pub fn appendSlice(self: *Self, values: []const Value) !void {
         if (self.immutable) return error.ImmutableList;
         if (self.capacity < values.len) try self.resize(@intCast(self.capacity + values.len)); // grow if need
-        @memcpy(self.items.ptr[self.items.len .. self.items.len + values.len], values);
+        for (values, self.items.ptr[self.items.len..self.capacity]) |value, *item| {
+            const symbol_value = try rt.castToSymbolValue(self.allocator, value, self.item_type);
+            item.* = SymbolTable.Symbol{ .value = symbol_value, .is_const = self.immutable };
+        }
         self.items.len += values.len;
     }
 
-    pub fn pop(self: *Self) !?Value {
+    /// NOTE: does not check for the same type, have to be done by the caller
+    pub fn appendSliceSymbols(self: *Self, values: []const SymbolTable.Symbol) !void {
+        if (self.immutable) return error.ImmutableList;
+        if (self.capacity < values.len) try self.resize(@intCast(self.capacity + values.len)); // grow if need
+        @memcpy(self.items.ptr[self.items.len..self.capacity], values);
+        self.items.len += values.len;
+    }
+
+    pub fn pop(self: *Self) !?SymbolTable.Symbol {
         if (self.immutable) return error.ImmutableList;
         if (self.items.len == 0) return null;
         self.items.len -= 1;
@@ -436,24 +470,25 @@ pub const List = struct {
         self.items.len = old_len;
     }
 
-    pub fn equal(self: *const Self, other: *const Self) bool {
-        if (self.items.len != other.items.len) return false;
+    pub fn equal(self: *const Self, other: *const Self) Value {
+        if (self.items.len != other.items.len) return rt.Value{ .boolean = false };
         for (self.items, other.items) |a, b| {
-            if (!a.equalB(b)) return false;
+            const a_rtvalue = rt.castToValueNoRef(a.value);
+            const b_rtvalue = rt.castToValueNoRef(b.value);
+
+            const boolean_value = a_rtvalue.equal(b_rtvalue);
+            if (rt.checkRuntimeError(boolean_value, null)) |err| return err.value;
+            if (!boolean_value.boolean) return rt.Value{ .boolean = false };
         }
-        return true;
+        return rt.Value{ .boolean = true };
     }
 
     pub fn index(self: *Self, i: Value) Value {
         defer self.deinit();
         const iv = rt.castToIndex(i, self.items.len) catch return Value.err("IndexError", "Can't cast to index", null);
         if (iv < 0 or iv >= self.items.len) return Value.err("IndexError", "Index out of range", null);
-        _ = self.items[iv].ref();
-        if (self.immutable) {
-            return self.items[iv];
-        } else {
-            return Value{ .ptr = &self.items[iv] };
-        }
+        _ = self.items[iv].value.ref();
+        return Value{ .symbol = &self.items[iv] };
     }
 
     pub fn setImmutable(self: *Self, immutable: bool) *Self {

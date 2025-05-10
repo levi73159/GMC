@@ -1,7 +1,3 @@
-const imlist multi_list = [
-    [1, 2, 3],
-];
+const list x = [1, true, "abc"];
 
-multi_list[0][0] = 3;
-
-println(multi_list);
+println(x);

@@ -73,6 +73,10 @@ pub const Kind = enum {
 };
 
 pub const TypeValue = enum {
+    // special types
+    any,
+
+    // basic types
     i8,
     i16,
     i32,

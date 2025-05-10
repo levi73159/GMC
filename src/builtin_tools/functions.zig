@@ -81,7 +81,7 @@ pub fn len(args: []const rt.Value, _: Interpreter) rt.Result {
 
     if (args.len != 1) return err("len", "Expected 1 argument");
 
-    const arg = args[0].depointerize();
+    const arg = args[0].depointerizeToValue();
     const result = switch (arg) {
         .string => |s| val(.{ .integer = s.value.len }),
         .list => |l| blk: {

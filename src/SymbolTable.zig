@@ -43,12 +43,32 @@ pub const SymbolValue = union(enum) {
             else => self,
         };
     }
+
+    pub fn ref(self: SymbolValue) SymbolValue {
+        return switch (self) {
+            .string => |s| SymbolValue{ .string = s.ref() },
+            .list => |l| SymbolValue{ .list = l.ref() },
+            else => self,
+        };
+    }
 };
 pub const SymbolType = std.meta.Tag(SymbolValue);
 
 pub const Symbol = struct {
     is_const: bool,
     value: SymbolValue,
+
+    pub fn deinit(self: Symbol) void {
+        self.value.deinit();
+    }
+
+    pub fn clone(self: Symbol) Symbol {
+        return Symbol{ .is_const = self.is_const, .value = self.value.clone() };
+    }
+
+    pub fn ref(self: Symbol) Symbol {
+        return Symbol{ .is_const = self.is_const, .value = self.value.ref() };
+    }
 };
 
 parent: ?*Self = null,
