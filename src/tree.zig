@@ -1,6 +1,7 @@
 const std = @import("std");
 const Token = @import("Token.zig");
 const DebugPos = @import("DebugPos.zig");
+const Type = @import("Type.zig");
 
 pub fn BaseType(comptime T: type) type {
     return struct {
@@ -183,8 +184,7 @@ pub const UnaryOp = struct {
 
 pub const VariableDecl = struct {
     is_const: BaseType(bool),
-    type: Token,
-    generic_type: ?Token,
+    type: Type,
     identifier: Token,
     value: ?*const Node,
 

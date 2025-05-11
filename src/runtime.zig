@@ -7,6 +7,7 @@ const TypeVal = @import("Token.zig").TypeValue;
 const Node = tree.Node;
 const Intrepreter = @import("Interpreter.zig");
 const Params = tree.FuncParam;
+const Type = @import("Type.zig");
 
 const types = @import("types.zig");
 const Error = types.Error;
@@ -19,7 +20,7 @@ pub const Signal = union(enum) {
 
 pub const SymbolPtr = struct {
     ptr: *SymbolTable.Symbol,
-    type: TypeVal,
+    type: Type,
 
     const Self = @This();
 
@@ -194,7 +195,7 @@ pub const Value = union(enum) {
             },
             .list => |l| switch (rhs) {
                 .list => |r| blk: {
-                    const item_type: TypeVal = if (l.item_type != r.item_type) TypeVal.any else l.item_type;
+                    const item_type: Type = if (!l.item_type.equal(r.item_type)) Type.any() else l.item_type;
                     const new = types.List.initMutable(allocator);
                     new.item_type = item_type;
 

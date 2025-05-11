@@ -1,6 +1,7 @@
 const std = @import("std");
 const rt = @import("runtime.zig");
 const types = @import("types.zig");
+const Type = @import("Type.zig");
 
 const Self = @This();
 
@@ -52,7 +53,7 @@ pub const SymbolValue = union(enum) {
         };
     }
 
-    pub fn setGenericType(self: SymbolValue, ty: types.TypeVal) !void {
+    pub fn setGenericType(self: SymbolValue, ty: Type) !void {
         switch (self) {
             .list => |l| try l.setGenericType(ty),
             else => return error.NotGeneric,

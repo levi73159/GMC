@@ -98,7 +98,7 @@ pub const TypeValue = enum {
     list,
     imlist,
 
-    const GenericInfo = struct {
+    pub const GenericInfo = struct {
         default: ?TypeValue,
     };
 

@@ -1,6 +1,7 @@
 const std = @import("std");
 const SymbolTable = @import("../SymbolTable.zig");
 const TypeVal = @import("../Token.zig").TypeValue;
+const Type = @import("../Type.zig");
 const rt = @import("../runtime.zig");
 
 const Value = rt.Value;
@@ -15,7 +16,7 @@ capacity: u64 = 0,
 refs: u32 = 1,
 immutable: bool = false,
 
-item_type: TypeVal = .any,
+item_type: Type = Type.any(),
 
 pub fn init(allocator: std.mem.Allocator, immutable: bool) *Self {
     const list = allocator.create(Self) catch unreachable;
@@ -118,7 +119,8 @@ pub fn clear(self: *Self) !void {
 
 pub fn append(self: *Self, value: Value) !void {
     if (self.immutable) return error.ImmutableList;
-    const symbol_value = try rt.castToSymbolValue(self.allocator, value, self.item_type);
+    const symbol_value = try rt.castToSymbolValue(self.allocator, value, self.item_type.value);
+    if (self.item_type.generic_type) |gen_type| try symbol_value.setGenericType(gen_type.*);
     return self.appendSymbol(symbol_value);
 }
 
@@ -207,10 +209,22 @@ pub fn setImmutable(self: *Self, immutable: bool) *Self {
     return self;
 }
 
-pub fn setGenericType(self: *Self, generic_type: TypeVal) !void {
+pub fn setGenericType(self: *Self, generic_type: Type) anyerror!void {
     self.item_type = generic_type;
     for (self.items) |*item| {
-        item.value = try rt.castToSymbolValue(self.allocator, rt.castToValueNoRef(item.value), generic_type);
+        item.value = try rt.castToSymbolValue(self.allocator, rt.castToValueNoRef(item.value), generic_type.value);
+        if (generic_type.getGenericInfo()) |info| {
+            if (generic_type.generic_type) |gen_type| {
+                try item.value.setGenericType(gen_type.*);
+            } else if (info.default) |default| {
+                try item.value.setGenericType(Type.init(default, null));
+            } else {
+                return error.ExpectedGenericType;
+            }
+        } else {
+            if (generic_type.generic_type) |_| return error.NotGeneric;
+        }
+        item.is_const = self.immutable;
     }
 }
 

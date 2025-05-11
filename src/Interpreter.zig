@@ -5,6 +5,7 @@ const SymbolTable = @import("SymbolTable.zig");
 const tree = @import("tree.zig");
 const Node = tree.Node;
 const TypeVal = @import("Token.zig").TypeValue;
+const Type = @import("Type.zig");
 
 const rt = @import("runtime.zig");
 const ty = @import("types.zig");
@@ -221,15 +222,15 @@ fn evalUnaryOp(self: Self, og_node: *const Node) rt.Result {
     return rt.Result.val(result);
 }
 
-fn setGeneric(self: Self, og_node: *const Node, symval: SymbolTable.SymbolValue) rt.Result {
-    const node = og_node.var_decl;
-    if (node.type.value.type.getGenericInfo()) |info| {
-        const node_generic_type: ?TypeVal = if (node.generic_type) |gen| gen.value.type else null;
-
-        const generic_type =
-            node_generic_type orelse
-            info.default orelse
-            return rt.Result.err("Missing Generic Type", "The type is generic and needs a generic type", if (node.generic_type) |gen| gen.pos else node.type.pos);
+fn setGeneric(self: Self, gtype: Type, symval: SymbolTable.SymbolValue) rt.Result {
+    if (gtype.getGenericInfo()) |info| { // it is generic
+        const generic_type: Type =
+            if (gtype.generic_type) |gen|
+                gen.*
+            else if (info.default) |default|
+                Type.init(default, null)
+            else
+                return rt.Result.err("Missing Generic Type", "The type is generic and needs a generic type", if (gtype.generic_type) |gen| gen.pos else gtype.pos);
 
         symval.setGenericType(generic_type) catch |err| switch (err) {
             error.OutOfMemory => std.debug.panic("OUT OF MEMORY!!!", .{}),
@@ -237,14 +238,14 @@ fn setGeneric(self: Self, og_node: *const Node, symval: SymbolTable.SymbolValue)
                 self.allocator,
                 "Invalid Cast",
                 "Can't convert {0s} to a {0s}<{1s}>",
-                .{ node.type.lexeme, @tagName(generic_type) },
-                og_node.getPos(),
+                .{ @tagName(gtype.value), generic_type },
+                null,
             ),
-            error.NotGeneric => return rt.Result.err("Not Generic", "The type is not generic", og_node.getPos()),
-            else => return rt.Result.err("Unknown Error", null, og_node.getPos()),
+            error.NotGeneric => return rt.Result.err("Not Generic", "The type is not generic", null),
+            else => return rt.Result.err("Unknown Error", "PANIC", null),
         };
     } else {
-        if (node.generic_type) |_| return rt.Result.err("Not Generic", "The type is not generic", node.type.pos);
+        if (gtype.generic_type) |_| return rt.Result.err("Not Generic", "The type is not generic", gtype.pos);
     }
 
     return rt.Result.none();
@@ -252,12 +253,14 @@ fn setGeneric(self: Self, og_node: *const Node, symval: SymbolTable.SymbolValue)
 
 fn evalVarDecl(self: Self, og_node: *const Node) rt.Result {
     var ret_error: bool = false;
+
     const node = og_node.var_decl;
     const value: rt.Value = if (node.value) |v| blk: {
         const result = self.evalNode(v);
         if (checkRuntimeErrorOrSignal(result, v)) |err| return err;
         break :blk result.value;
     } else .none;
+
     defer if (ret_error) value.deinit();
 
     if (checkRuntimeError(value, node.value orelse og_node)) |err| {
@@ -265,15 +268,13 @@ fn evalVarDecl(self: Self, og_node: *const Node) rt.Result {
         return err;
     }
 
-    std.debug.assert(node.type.value == .type);
-
-    const symval = rt.castToSymbolValue(self.allocator, value.clone(), node.type.value.type) catch {
+    const symval = rt.castToSymbolValue(self.allocator, value.clone(), node.type.value) catch {
         ret_error = true;
         return rt.Result.err("Invalid Cast", "The value can't be converted to the type (could be due to the value is too big or small)", (node.value orelse og_node).getPos());
     };
     defer if (ret_error) symval.deinit();
 
-    const generic_result = self.setGeneric(og_node, symval);
+    const generic_result = self.setGeneric(node.type, symval);
     if (checkRuntimeErrorOrSignal(generic_result, og_node)) |err| {
         ret_error = true;
         return err;
@@ -337,9 +338,11 @@ fn evalVarAssign(self: Self, og_node: *const Node) rt.Result {
                     return rt.Result.val(value.ref());
                 },
                 .symbol => |s| {
-                    s.ptr.value = rt.castToSymbolValue(self.allocator, value, s.type) catch {
+                    s.ptr.value = rt.castToSymbolValue(self.allocator, value, s.type.value) catch {
                         return rt.Result.err("Invalid Cast", "The value can't be converted to the type (could be due to the value is too big or small)", node.value.getPos());
                     };
+                    const rs = self.setGeneric(s.type, s.ptr.value);
+                    if (checkRuntimeErrorOrSignal(rs, og_node)) |err| return err;
                     return rt.Result.val(value);
                 },
                 else => return rt.Result.err("Not Mutable", "The target is not mutable", node.left.getPos()),

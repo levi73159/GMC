@@ -1,5 +1,6 @@
 const std = @import("std");
 const Token = @import("Token.zig");
+const Type = @import("Type.zig");
 const tree = @import("tree.zig");
 
 const Self = @This();
@@ -256,33 +257,38 @@ fn parseExpression(self: *Self) ParseError!*const tree.Node {
     return self.parseAssign();
 }
 
+fn parseType(self: *Self) ParseError!Type {
+    const tyval = self.consume(.type) orelse return self.badToken(error.ExpectedType);
+
+    const generic_type: ?*const Type = if (self.consume(.lt)) |_| blk: {
+        const _type = try self.parseType();
+        _ = self.consume(.gt) orelse return self.badToken(error.MissingAngleBracket);
+
+        const ptr = try self.node_allocator.create(Type);
+        ptr.* = _type;
+        break :blk ptr;
+    } else null;
+
+    var ty = Type{ .value = tyval.value.type, .generic_type = generic_type };
+    ty.pos = tyval.pos;
+
+    try ty.checkGenericError(); // returns generic error if the type is not generic or needs a generic type
+
+    return ty;
+}
+
 fn parseVariableDecl(self: *Self) ParseError!*const tree.Node {
     const tok = self.advance().?; // should never be null
     const is_const = tok.kind == .const_kw;
-    const t = self.consume(.type) orelse return self.badToken(error.ExpectedType);
-
-    const generic_type: ?Token = if (self.consume(.lt)) |_| blk: {
-        const _type = self.consume(.type) orelse return self.badToken(error.ExpectedType);
-        _ = self.consume(.gt) orelse return self.badToken(error.MissingAngleBracket);
-        break :blk _type;
-    } else null;
-
-    // generic type check
-    if (t.value.type.getGenericInfo()) |info| {
-        if (info.default == null and generic_type == null) return error.ExpectedGenericType;
-    } else {
-        if (generic_type != null) return error.NotAGeneric;
-    }
+    const t = try self.parseType();
 
     const identifier = self.consume(.identifier) orelse return self.badToken(error.ExpectedIdentifier);
-    // value can be null
     const value: ?*const tree.Node = if (self.consume(.equal)) |_| try self.parseExpression() else null;
 
     return self.allocNode(.{
         .var_decl = .{
             .is_const = .{ .n = is_const, .orginal = tok },
             .type = t,
-            .generic_type = generic_type,
             .identifier = identifier,
             .value = value,
         },
