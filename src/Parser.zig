@@ -2,6 +2,7 @@ const std = @import("std");
 const Token = @import("Token.zig");
 const Type = @import("Type.zig");
 const tree = @import("tree.zig");
+const DebugPos = @import("DebugPos.zig");
 
 const Self = @This();
 
@@ -499,7 +500,43 @@ fn parseRelational(self: *Self) ParseError!*const tree.Node {
 }
 
 fn parseShift(self: *Self) ParseError!*const tree.Node {
-    return self.parseBinaryOperand(&[_]Token.Kind{ .lt_lt, .gt_gt }, &parseTerm);
+    const Context = struct {
+        fn check(s: *Self) bool {
+            if (s.match(.lt) and s.matchP(.lt, 1)) return true;
+            if (s.match(.gt) and s.matchP(.gt, 1)) return true;
+            return false;
+        }
+    };
+    var left = try self.parseTerm();
+    while (Context.check(self)) {
+        const tok = self.advance().?;
+        const tok2 = self.consume(tok.kind) orelse return self.badToken(error.ExpectedToken);
+        std.debug.assert(tok2.kind == tok.kind);
+        var shift_token = if (tok.kind == .lt)
+            Token.init(.lt_lt, "<<")
+        else
+            Token.init(.gt_gt, ">>");
+
+        const pos: ?DebugPos = blk: {
+            if (tok.pos) |p1| {
+                if (tok2.pos) |p2| {
+                    break :blk p1.combine(p2);
+                }
+                break :blk p1;
+            }
+            if (tok2.pos) |p2| {
+                break :blk p2;
+            }
+            break :blk null;
+        };
+        shift_token.pos = pos;
+
+        const right = try self.parseTerm();
+        left = try self.allocNode(tree.Node{
+            .bin_op = .{ .left = left, .op = shift_token, .right = right },
+        });
+    }
+    return left;
 }
 
 fn parseTerm(self: *Self) ParseError!*const tree.Node {

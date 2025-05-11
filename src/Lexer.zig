@@ -53,30 +53,8 @@ pub fn next(self: *Self) !?Token {
         '&' => self.initTokenOrOther(.ampersand, .ampersand_ampersand, "&", "&&", '&'),
         '|' => self.initTokenOrOther(.pipe, .pipe_pipe, "|", "||", '|'),
         '^' => self.initToken(.caret, "^"),
-        '<' => less: {
-            const start = self.prev;
-            if (self.consume('=')) {
-                self.prev = start.combine(self.prev);
-                break :less self.initToken(.lt_equal, "<=");
-            }
-            if (self.consume('<')) {
-                self.prev = start.combine(self.prev);
-                break :less self.initToken(.lt_lt, "<<");
-            }
-            break :less self.initToken(.lt, "<");
-        },
-        '>' => greater: {
-            const start = self.prev;
-            if (self.consume('=')) {
-                self.prev = start.combine(self.prev);
-                break :greater self.initToken(.gt_equal, ">=");
-            }
-            if (self.consume('>')) {
-                self.prev = start.combine(self.prev);
-                break :greater self.initToken(.gt_gt, ">>");
-            }
-            break :greater self.initToken(.gt, ">");
-        },
+        '<' => self.initTokenOrOther(.lt, .lt_equal, "<", "<=", '='),
+        '>' => self.initTokenOrOther(.gt, .gt_equal, ">", ">=", '='),
         ';' => self.initToken(.semicolon, ";"),
         '=' => self.initTokenOrOther(.equal, .equal_equal, "=", "==", '='),
         '!' => self.initTokenOrOther(.bang, .bang_equal, "!", "!=", '='),
