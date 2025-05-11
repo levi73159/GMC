@@ -214,18 +214,14 @@ pub fn setGenericType(self: *Self, generic_type: TypeVal) !void {
     }
 }
 
-pub fn repeat(self: *Self, times: i65) !void {
+pub fn repeat(self: *Self, times: i65) !*Self {
     if (times < 0) return error.NegativeRepeat;
-    if (times == 0) return;
-    const new_len = self.items.len * @as(usize, @intCast(times));
-    const new_items = try self.allocator.alloc(SymbolTable.Symbol, new_len);
-    errdefer self.allocator.free(new_items);
-    var i: usize = 0;
-    while (i < new_len) : (i += 1) {
-        new_items[i] = self.items[i % self.items.len];
+    if (times == 0) return Self.initMutable(self.allocator);
+
+    const times_usize: usize = @intCast(times);
+    const new = self.clone(); // copy the list, aka times 1
+    for (0..times_usize - 1) |_| {
+        try new.appendSliceSymbols(self.items);
     }
-    self.deinit();
-    self.items = new_items;
-    self.capacity = new_len;
-    self.items.len = new_len;
+    return new;
 }

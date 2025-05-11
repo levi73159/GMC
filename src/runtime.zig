@@ -232,7 +232,7 @@ pub const Value = union(enum) {
         };
     }
 
-    pub fn mul(allocator: std.mem.Allocator, lhs_n: Value, rhs_n: Value) Value {
+    pub fn mul(_: std.mem.Allocator, lhs_n: Value, rhs_n: Value) Value {
         const lhs = lhs_n.depointerizeToValue();
         const rhs = rhs_n.depointerizeToValue();
 
@@ -258,13 +258,13 @@ pub const Value = union(enum) {
                 } },
                 else => Value.err("Invalid type", "Can't multiply nonnumeric values", null),
             },
-            .char => |c| switch (rhs) {
-                .integer => |i| Value{ .string = types.String.initRepeat(allocator, c, i) catch |e| switch (e) {
+            .list => |l| switch (rhs) {
+                .integer => |i| Value{ .list = l.repeat(i) catch |e| switch (e) {
                     error.OutOfMemory => @panic("out of memory"),
                     error.NegativeRepeat => return Value.err("Invalid Repeat", "Can't repeat by a negative number", null),
                     else => unreachable,
                 } },
-                else => Value.err("Invalid type", "Can't multiply nonnumeric values", null),
+                else => Value.err("Invalid type", "Can't multiply list with noninteger", null),
             },
             else => Value.err("Invalid type", "Can't multiply nonnumeric values", null),
         };
