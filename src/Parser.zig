@@ -25,11 +25,14 @@ const ParseError = error{
     MissingParen,
     MissingBracket,
     MissingCurlyBracket,
+    MissingAngleBracket,
     NumberOverflow,
     InvalidNumber,
     InvalidAssignmentTarget,
     InvalidCharacter,
     MissingEndOfString,
+    NotAGeneric,
+    ExpectedGenericType,
 };
 
 pub fn init(tokens: []const Token, node_allocator: std.mem.Allocator, allocator: std.mem.Allocator) Self {
@@ -250,8 +253,6 @@ fn parseExpression(self: *Self) ParseError!*const tree.Node {
     if (self.match(.for_kw)) return self.parseFor(true);
     if (self.match(.while_kw)) return self.parseWhile();
 
-    if (self.match(.left_bracket)) return self.parseArray();
-
     return self.parseAssign();
 }
 
@@ -259,28 +260,33 @@ fn parseVariableDecl(self: *Self) ParseError!*const tree.Node {
     const tok = self.advance().?; // should never be null
     const is_const = tok.kind == .const_kw;
     const t = self.consume(.type) orelse return self.badToken(error.ExpectedType);
+
+    const generic_type: ?Token = if (self.consume(.lt)) |_| blk: {
+        const _type = self.consume(.type) orelse return self.badToken(error.ExpectedType);
+        _ = self.consume(.gt) orelse return self.badToken(error.MissingAngleBracket);
+        break :blk _type;
+    } else null;
+
+    // generic type check
+    if (t.value.type.getGenericInfo()) |info| {
+        if (info.default == null and generic_type == null) return error.ExpectedGenericType;
+    } else {
+        if (generic_type != null) return error.NotAGeneric;
+    }
+
     const identifier = self.consume(.identifier) orelse return self.badToken(error.ExpectedIdentifier);
     // value can be null
-    if (self.consume(.equal)) |_| {
-        const value = try self.parseExpression(); // so we can do var u8 x = var u8 y = 10;
-        return self.allocNode(tree.Node{
-            .var_decl = .{
-                .is_const = .{ .n = is_const, .orginal = tok },
-                .type = t,
-                .identifier = identifier,
-                .value = value,
-            },
-        });
-    } else {
-        return self.allocNode(tree.Node{
-            .var_decl = .{
-                .is_const = .{ .n = is_const, .orginal = tok },
-                .type = t,
-                .identifier = identifier,
-                .value = null,
-            },
-        });
-    }
+    const value: ?*const tree.Node = if (self.consume(.equal)) |_| try self.parseExpression() else null;
+
+    return self.allocNode(.{
+        .var_decl = .{
+            .is_const = .{ .n = is_const, .orginal = tok },
+            .type = t,
+            .generic_type = generic_type,
+            .identifier = identifier,
+            .value = value,
+        },
+    });
 }
 
 fn parseAssign(self: *Self) ParseError!*const tree.Node {
@@ -574,6 +580,8 @@ fn parseBasePrimary(self: *Self) ParseError!*const tree.Node {
     if (self.consume(.false_kw)) |tok| {
         return self.allocNode(tree.Node{ .boolean = .{ .n = false, .orginal = tok } });
     }
+
+    if (self.match(.left_bracket)) return self.parseArray();
 
     return error.ExpectedStatement;
 }

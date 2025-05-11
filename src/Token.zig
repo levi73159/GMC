@@ -97,6 +97,17 @@ pub const TypeValue = enum {
     // list is mutable and imlist is immutable hince [im]mutable
     list,
     imlist,
+
+    const GenericInfo = struct {
+        default: ?TypeValue,
+    };
+
+    pub fn getGenericInfo(self: TypeValue) ?GenericInfo {
+        return switch (self) {
+            .list, .imlist => .{ .default = .any },
+            else => null,
+        };
+    }
 };
 
 pub const Value = union(enum) {

@@ -4,12 +4,13 @@ const tree = @import("tree.zig");
 
 const Intrepreter = @import("Interpreter.zig");
 const Params = tree.FuncParam;
-const TypeVal = @import("Token.zig").TypeValue;
 const SymbolTable = @import("SymbolTable.zig");
 
 const rt = @import("runtime.zig");
 const Value = rt.Value;
 const Result = rt.Result;
+
+pub const TypeVal = @import("Token.zig").TypeValue;
 
 pub const Error = struct {
     msg: []const u8,
@@ -408,9 +409,8 @@ pub const List = struct {
     }
 
     pub fn append(self: *Self, value: Value) !void {
-        const symbol_value = rt.castToSymbolValue(self.allocator, value, self.item_type) catch {
-            return self.appendSlice(&.{value});
-        };
+        if (self.immutable) return error.ImmutableList;
+        const symbol_value = try rt.castToSymbolValue(self.allocator, value, self.item_type);
         return self.appendSymbol(symbol_value);
     }
 
@@ -435,7 +435,7 @@ pub const List = struct {
     pub fn appendSliceSymbols(self: *Self, values: []const SymbolTable.Symbol) !void {
         if (self.immutable) return error.ImmutableList;
         if (self.capacity < values.len) try self.resize(@intCast(self.capacity + values.len)); // grow if need
-        @memcpy(self.items.ptr[self.items.len..self.capacity], values);
+        @memcpy(self.items.ptr[self.items.len..][0..values.len], values);
         self.items.len += values.len;
     }
 
@@ -488,11 +488,21 @@ pub const List = struct {
         const iv = rt.castToIndex(i, self.items.len) catch return Value.err("IndexError", "Can't cast to index", null);
         if (iv < 0 or iv >= self.items.len) return Value.err("IndexError", "Index out of range", null);
         _ = self.items[iv].value.ref();
-        return Value{ .symbol = &self.items[iv] };
+        return Value{ .symbol = .{
+            .ptr = &self.items[iv],
+            .type = self.item_type,
+        } };
     }
 
     pub fn setImmutable(self: *Self, immutable: bool) *Self {
         self.immutable = immutable;
         return self;
+    }
+
+    pub fn setGenericType(self: *Self, generic_type: TypeVal) !void {
+        self.item_type = generic_type;
+        for (self.items) |*item| {
+            item.value = try rt.castToSymbolValue(self.allocator, rt.castToValueNoRef(item.value), generic_type);
+        }
     }
 };

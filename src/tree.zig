@@ -184,6 +184,7 @@ pub const UnaryOp = struct {
 pub const VariableDecl = struct {
     is_const: BaseType(bool),
     type: Token,
+    generic_type: ?Token,
     identifier: Token,
     value: ?*const Node,
 

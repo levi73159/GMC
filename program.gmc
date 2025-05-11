@@ -1,3 +1,4 @@
-const list x = [1, true, "abc"];
+const list<int> x = [0, 1] + [2, 3];
+const list<float> y = x;
 
-println(x);
+println(x, y);

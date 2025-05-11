@@ -22,7 +22,7 @@ pub const SymbolValue = union(enum) {
     string: types.String,
     char: u8, // char is another name for u8 but treated like a character instead of a number
     func: types.Function,
-    list: *types.List,
+    list: *types.List, // any thing that is mutable like a list will be a pointer to the type
 
     pub fn deinit(self: SymbolValue) void {
         switch (self) {
@@ -50,6 +50,13 @@ pub const SymbolValue = union(enum) {
             .list => |l| SymbolValue{ .list = l.ref() },
             else => self,
         };
+    }
+
+    pub fn setGenericType(self: SymbolValue, ty: types.TypeVal) !void {
+        switch (self) {
+            .list => |l| try l.setGenericType(ty),
+            else => return error.NotGeneric,
+        }
     }
 };
 pub const SymbolType = std.meta.Tag(SymbolValue);

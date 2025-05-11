@@ -17,6 +17,30 @@ pub const Signal = union(enum) {
     @"continue": void,
 };
 
+pub const SymbolPtr = struct {
+    ptr: *SymbolTable.Symbol,
+    type: TypeVal,
+
+    const Self = @This();
+
+    pub fn init(ptr: *SymbolTable.Symbol, ty: TypeVal) Self {
+        return Self{ .ptr = ptr, .type = ty };
+    }
+
+    pub fn deinit(self: Self) void {
+        self.ptr.deinit();
+    }
+
+    pub fn ref(self: Self) Self {
+        _ = self.ptr.ref();
+        return self;
+    }
+
+    pub fn clone(self: Self) SymbolTable.Symbol {
+        return self.ptr.clone();
+    }
+};
+
 pub const Value = union(enum) {
     integer: i65,
     float: f64,
@@ -27,7 +51,7 @@ pub const Value = union(enum) {
     list: *types.List,
 
     ptr: *Value, // all pointers are nonconst
-    symbol: *SymbolTable.Symbol,
+    symbol: SymbolPtr,
     none,
     runtime_error: Error,
 
@@ -37,7 +61,7 @@ pub const Value = union(enum) {
     pub fn depointerizeToValue(self: Value) Value {
         return switch (self) {
             .ptr => |p| p.*,
-            .symbol => |s| castToValueNoRef(s.value),
+            .symbol => |s| castToValueNoRef(s.ptr.value),
             else => self,
         };
     }
@@ -61,7 +85,7 @@ pub const Value = union(enum) {
             .list => |l| Value{ .boolean = l.items.len > 0 },
             .boolean, .runtime_error => self,
             .ptr => |p| p.convertToBool(),
-            .symbol => |s| castToValueNoRef(s.value).convertToBool(),
+            .symbol => |s| castToValueNoRef(s.ptr.value).convertToBool(),
         };
     }
 
@@ -103,7 +127,7 @@ pub const Value = union(enum) {
             .string => |s| Value{ .string = s.clone() },
             .list => |l| Value{ .list = l.clone() },
             .ptr => |p| p.clone(),
-            .symbol => |s| castToValueNoRef(s.value).clone(),
+            .symbol => |s| castToValueNoRef(s.clone().value),
             else => self,
         };
     }
@@ -117,10 +141,7 @@ pub const Value = union(enum) {
                 _ = p.ref();
                 break :blk self;
             },
-            .symbol => |s| blk: {
-                _ = s.ref();
-                break :blk self;
-            },
+            .symbol => |s| Value{ .symbol = s.ref() },
             else => self,
         };
     }
@@ -174,13 +195,13 @@ pub const Value = union(enum) {
             .list => |l| switch (rhs) {
                 .list => |r| blk: {
                     const item_type: TypeVal = if (l.item_type != r.item_type) TypeVal.any else l.item_type;
-                    const new = types.List.initImmutable(allocator);
+                    const new = types.List.initMutable(allocator);
                     new.item_type = item_type;
 
-                    l.deinit();
-                    r.deinit();
-                    new.appendSliceSymbols(l.items) catch @panic("out of memory");
-                    new.appendSliceSymbols(r.items) catch @panic("out of memory");
+                    defer l.deinit();
+                    defer r.deinit();
+                    new.appendSliceSymbols(l.items) catch |e| std.debug.panic("{}", .{e});
+                    new.appendSliceSymbols(r.items) catch |e| std.debug.panic("{}", .{e});
                     break :blk Value{ .list = new };
                 },
                 else => Value.err("Invalid type", "Can't add list to nonlist", null),
@@ -752,6 +773,11 @@ pub const Result = union(enum) {
         };
     }
 
+    pub fn errPrint(allocator: std.mem.Allocator, msg: []const u8, comptime fmt: []const u8, args: anytype, pos: ?Pos) Result {
+        const extra = std.fmt.allocPrint(allocator, fmt, args) catch unreachable;
+        return Result.errHeap(allocator, msg, extra, pos);
+    }
+
     pub fn sig(s: Signal) Result {
         return Result{
             .signal = s,
@@ -792,7 +818,7 @@ pub fn safeFloatCast(comptime TO: type, v_n: Value) !TO {
     const v = v_n.depointerizeToValue();
 
     const max = std.math.floatMax(TO);
-    const min = std.math.floatMin(TO);
+    const min = -std.math.floatMax(TO);
 
     switch (v) {
         .integer => |i| {
