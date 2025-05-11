@@ -150,7 +150,6 @@ fn repl(gpa: std.mem.Allocator) !void {
 }
 
 fn runFile(dbg: std.mem.Allocator, file: std.fs.File) !void {
-    std.log.debug("Running file", .{});
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
 
@@ -166,11 +165,9 @@ fn runFile(dbg: std.mem.Allocator, file: std.fs.File) !void {
 }
 
 fn run(text: []const u8, allocator: std.mem.Allocator, dbg_allocator: std.mem.Allocator, symbols: *SymbolTable, force_heap: bool) void {
-    std.log.debug("Init Lexer", .{});
     var lexer = Lexer.init(text);
     const tokens = lexer.makeTokens(allocator) catch |err| switch (err) {
         error.OutOfMemory => {
-            std.log.err("OUT OF MEMORY!!!", .{});
             std.process.exit(255);
         },
         else => {
@@ -181,13 +178,10 @@ fn run(text: []const u8, allocator: std.mem.Allocator, dbg_allocator: std.mem.Al
         },
     };
     defer allocator.free(tokens);
-    std.log.debug("Toxens Made", .{});
 
-    std.log.debug("Init Parser", .{});
     var parser = Parser.init(tokens, allocator, dbg_allocator);
     const nodes = parser.parse() catch |err| switch (err) {
         error.OutOfMemory => {
-            std.log.err("OUT OF MEMORY!!!", .{});
             std.process.exit(255);
         },
         else => {
@@ -210,12 +204,9 @@ fn run(text: []const u8, allocator: std.mem.Allocator, dbg_allocator: std.mem.Al
         },
     };
     defer parser.deinit(nodes);
-    std.log.debug("Nodes made", .{});
 
-    std.log.debug("Init Interpreter", .{});
     var interperter = Interpreter.init(dbg_allocator, symbols);
     interperter.heap_str_only = force_heap;
-    std.log.debug("Running", .{});
+
     interperter.eval(nodes);
-    std.log.debug("Done", .{});
 }
