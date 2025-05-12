@@ -165,7 +165,7 @@ fn runFile(dbg: std.mem.Allocator, file: std.fs.File) !void {
 }
 
 fn run(text: []const u8, allocator: std.mem.Allocator, dbg_allocator: std.mem.Allocator, symbols: *SymbolTable, force_heap: bool) void {
-    var lexer = Lexer.init(dbg_allocator, text);
+    var lexer = Lexer.init(allocator, text);
     defer lexer.deinit();
     const tokens = lexer.makeTokens(allocator) catch |err| switch (err) {
         error.OutOfMemory => {

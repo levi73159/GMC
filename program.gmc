@@ -1,4 +1,0 @@
-$include "include.gmc"
-$define call sayHello("Levi"); println("Hello World") ;;
-
-@call;

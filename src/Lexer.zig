@@ -20,6 +20,7 @@ macro_buffer: std.ArrayList(Token), // used for macro expansion or include
 macro_buffer_index: usize = 0,
 
 file_contents: std.ArrayList([]const u8),
+disable_macro: bool = false,
 
 pub fn init(allocator: mem.Allocator, buffer: []const u8) Self {
     return Self{
@@ -353,6 +354,7 @@ fn isType(lexeme: []const u8) ?Token.Value {
 }
 
 fn macro(self: *Self) !void {
+    if (self.disable_macro) return error.MacroDisabled;
     const macro_ident = try self.next() orelse return error.UnexpectedEOF;
     if (macro_ident.kind != .identifier) return error.ExpectedMacroIdentifier;
 
@@ -413,18 +415,16 @@ fn defineMacro(self: *Self) !void {
 }
 
 fn expandMacro(self: *Self) ?Token {
+    if (self.disable_macro) return null;
     if (self.macro_buffer.items.len == 0) return null;
-    if (self.macro_buffer_index >= self.macro_buffer.items.len) {
-        self.macro_buffer.clearAndFree();
-        self.macro_buffer_index = 0;
-        return null;
-    }
+    if (self.macro_buffer_index >= self.macro_buffer.items.len) return null;
     const token = self.macro_buffer.items[self.macro_buffer_index];
     self.macro_buffer_index += 1;
     return token;
 }
 
 fn getExpandMacro(self: *Self) !void {
+    if (self.disable_macro) return error.MacroDisabled;
     const macro_name = try self.next() orelse return error.UnexpectedEOF;
     if (macro_name.kind != .identifier) return error.ExpectedMacroIdentifier;
 
