@@ -101,7 +101,7 @@ pub fn input(args: []const rt.Value, base: Interpreter) rt.Result {
     const stdin = std.io.getStdIn().reader();
 
     const prompt: []const u8 = if (args.len == 0) "" else args[0].string.value;
-    stdout.print("{s} ", .{prompt}) catch return err("IO Error", "Failed to write to stdout");
+    stdout.print("{s}", .{prompt}) catch return err("IO Error", "Failed to write to stdout");
 
     const in = stdin.readUntilDelimiterOrEofAlloc(base.allocator, '\n', 1024) catch |e| return errHeap(base.allocator, "IO Error", "Failed to read from stdin: {s}", .{@errorName(e)});
     if (in) |str| {

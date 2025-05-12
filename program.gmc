@@ -1,9 +1,30 @@
-const list x = [1, 2, 3, 4, 5, "hello"];
+func execute(str line) bool {
+    if (line == "help") {
+        println("This is a GMC program, type 'exit' to exit.");
+    } else if (line == "clear" || line == "cls") {
+        clear();
+    } else if (line == "version") {
+        println("GMC version 1.0.0");
+    } else if (line == "69") {
+        println("FUCK YOU");
+    } else {
+        println("Unknown command:", line);
+        return false;
+    }
+    return true;
+}
 
-const int y = x[0];
-const any z = x.pop();
+println("Welcome to the GMC program, type 'help' for more information!");
 
-println(x);
-println(y);
-println(z);
-println(z);
+while (true) {
+    const str line = input("> ");
+    if (line == "exit") {
+        break;
+    }
+    const bool success = execute(line);
+    if (!success) {
+        println("Error executing command:", line);
+    }
+}
+
+println("Goodbye!");
