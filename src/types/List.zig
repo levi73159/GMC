@@ -80,9 +80,7 @@ pub fn fromSymbolsImmutable(allocator: std.mem.Allocator, items: []const SymbolT
 }
 
 pub fn deinit(self: *Self) void {
-    if (self.capacity == 0) return;
-    self.refs -= 1;
-
+    self.refs -|= 1;
     for (self.items) |item| item.value.deinit();
 
     if (self.refs == 0) {
@@ -114,11 +112,7 @@ fn clearAndFree(self: *Self) void {
     self.capacity = 0;
 }
 
-pub fn clear(self: *Self) !void {
-    if (self.immutable) return error.ImmutableList;
-    if (self.capacity == 0) return;
-    self.items.len = 0;
-}
+pub const clear = clearAndFree;
 
 pub fn append(self: *Self, value: Value) !void {
     if (self.immutable) return error.ImmutableList;
@@ -156,8 +150,10 @@ pub fn pop(self: *Self) !?SymbolTable.Symbol {
     if (self.immutable) return error.ImmutableList;
     if (self.items.len == 0) return null;
     self.items.len -= 1;
+    const item = self.items.ptr[self.items.len];
+    defer item.value.deinit();
     if (self.items.len == 0) self.clearAndFree(); // dealloc memory if empty
-    return self.items[self.items.len];
+    return item;
 }
 
 // check if we need to grow if so then we grow

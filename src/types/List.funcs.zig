@@ -29,3 +29,28 @@ pub fn append(args: []const rt.Value, _: Interpreter) rt.Result {
 
     return none();
 }
+
+pub fn clear(args: []const rt.Value, _: Interpreter) rt.Result {
+    defer end(args);
+
+    if (args.len != 1) return err("clear", "Expected 1 argument");
+
+    const list = args[0].list;
+    list.clear();
+    return none();
+}
+
+pub fn pop(args: []const rt.Value, _: Interpreter) rt.Result {
+    defer end(args);
+
+    if (args.len != 1) return err("pop", "Expected 1 argument");
+
+    const list = args[0].list;
+
+    const item = list.pop() catch |e| switch (e) {
+        error.ImmutableList => return err("Immutable List", "Can't pop from an immutable list"),
+    };
+    if (item == null) return err("Empty List", "Can't pop from an empty list");
+
+    return val(rt.castToValueNoRef(item.?.value));
+}
