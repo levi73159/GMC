@@ -1,4 +1,4 @@
-func split(str value, char delimiter) imlist {
+func split(str value, char delimiter) imlist<str> {
     const list<str> result = [];
     var str result_buf = "";
     

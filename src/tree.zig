@@ -273,7 +273,7 @@ pub const WhileStmt = struct {
 };
 
 pub const FuncParam = struct {
-    type: Token, // should be an type
+    type: Type, // should be an type
     name: Token, // should be an identifier
 };
 
@@ -281,7 +281,7 @@ pub const FunctionDecl = struct {
     start: Token,
     identifier: Token,
     params: []const FuncParam,
-    ret_type: Token,
+    ret_type: Type,
     body: *const Node,
 
     pub fn deinit(self: FunctionDecl) void {

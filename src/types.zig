@@ -37,7 +37,7 @@ pub const BaseFunction = struct {
     name: []const u8,
     params: []const tree.FuncParam,
     body: *const tree.Node, // root node to execute
-    return_type: TypeVal,
+    return_type: Type,
     parent_scope: ?*SymbolTable,
 
     // debug pos, might be usefull but not needed
@@ -54,10 +54,9 @@ pub const BaseFunction = struct {
         }
 
         for (self.params, args) |param, arg| {
-            const symbol_value = rt.castToSymbolValue(base.allocator, arg, param.type.value.type) catch {
-                const msg2 = std.fmt.allocPrint(base.allocator, "Can't cast {s} to {s}", .{ @tagName(arg), @tagName(param.type.value.type) }) catch unreachable;
-                return Result.errHeap(base.allocator, "Invalid cast", msg2, null);
-            };
+            var symbol_value: SymbolTable.SymbolValue = undefined;
+            const rs = rt.castToTypeWithErrorMessage(base.allocator, arg, param.type, &symbol_value);
+            if (rt.checkRuntimeErrorOrSignal(rs, self.body)) |err| return err;
 
             symbols.add(param.name.lexeme, SymbolTable.Symbol{ .value = symbol_value, .is_const = true }) catch @panic("out of memory");
         }
@@ -67,8 +66,8 @@ pub const BaseFunction = struct {
 
         const scope = base.newScope(&symbols, base.allocator);
         const ret = scope.evalNode(self.body);
-        if (rt.checkRuntimeErrorOrSignal(ret, self.body)) |err| return err;
-        return ret;
+        if (rt.checkRuntimeErrorOrSignal(ret, self.body)) |sigOrErr| return sigOrErr;
+        return rt.Result.none();
     }
 
     // not the best but get the job done
@@ -82,10 +81,9 @@ pub const BaseFunction = struct {
         defer symbols.deinit();
 
         for (self.params) |param| {
-            const symbol_value = rt.castToSymbolValue(base.allocator, Value.none, param.type.value.type) catch {
-                const msg2 = std.fmt.allocPrint(base.allocator, "Can't cast {s} to {s}", .{ @tagName(Value.none), @tagName(param.type.value.type) }) catch unreachable;
-                return Result.errHeap(base.allocator, "Invalid cast", msg2, null);
-            };
+            var symbol_value: SymbolTable.SymbolValue = undefined;
+            const rs = rt.castToTypeWithErrorMessage(base.allocator, .none, param.type, &symbol_value);
+            if (rt.checkRuntimeErrorOrSignal(rs, self.body)) |err| return err;
 
             symbols.add(param.name.lexeme, SymbolTable.Symbol{ .value = symbol_value, .is_const = true }) catch @panic("out of memory");
         }
@@ -98,8 +96,12 @@ pub const BaseFunction = struct {
         if (rt.checkRuntimeErrorOrSignal(ret, self.body)) |sigOrErr| switch (sigOrErr) {
             .signal => |signal| switch (signal) {
                 .@"return" => |v| {
-                    _ = rt.castToSymbolValue(allocator, v, self.return_type) catch {
-                        const msg = std.fmt.allocPrint(base.allocator, "Function return an expected type, Expected {s} got {s}", .{ @tagName(self.return_type), @tagName(ret.value) }) catch unreachable;
+                    _ = rt.castToType(allocator, v, self.return_type) catch {
+                        const msg = std.fmt.allocPrint(
+                            base.allocator,
+                            "Function return an expected type, Expected {s} got {s}",
+                            .{ @tagName(self.return_type.value), @tagName(ret.value) },
+                        ) catch unreachable;
                         return Result.errHeap(base.allocator, "Invalid return type", msg, self.return_type_pos);
                     };
                     // we can cast the value
@@ -110,8 +112,8 @@ pub const BaseFunction = struct {
             else => return sigOrErr,
         };
 
-        if (self.return_type != .void) {
-            const msg = std.fmt.allocPrint(base.allocator, "Function return an expected type, Expected {s} got void", .{@tagName(self.return_type)}) catch unreachable;
+        if (self.return_type.value != .void) {
+            const msg = std.fmt.allocPrint(base.allocator, "Function return an expected type, Expected {s} got void", .{@tagName(self.return_type.value)}) catch unreachable;
             return Result.errHeap(base.allocator, "Invalid return type", msg, self.return_type_pos);
         }
 

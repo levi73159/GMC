@@ -757,7 +757,7 @@ fn parseFunction(self: *Self) ParseError!*const tree.Node {
     _ = self.consume(.left_paren) orelse return self.badToken(error.MissingParen);
 
     if (self.consume(.right_paren)) |_| {
-        const ret_type = self.consume(.type) orelse return self.badToken(error.ExpectedType);
+        const ret_type = try self.parseType();
         const body = try self.parseBlock();
         return self.allocNode(tree.Node{
             .function_decl = .{
@@ -774,7 +774,7 @@ fn parseFunction(self: *Self) ParseError!*const tree.Node {
     errdefer params.deinit();
 
     while (true) {
-        const t = self.consume(.type) orelse return self.badToken(error.ExpectedType);
+        const t = try self.parseType();
         const name = self.consume(.identifier) orelse return self.badToken(error.ExpectedIdentifier);
 
         try params.append(.{
@@ -786,7 +786,7 @@ fn parseFunction(self: *Self) ParseError!*const tree.Node {
     }
     _ = self.consume(.right_paren) orelse return self.badToken(error.MissingParen);
 
-    const ret_type = self.consume(.type) orelse return self.badToken(error.ExpectedType);
+    const ret_type = try self.parseType();
     const body = try self.parseBlock();
 
     return self.allocNode(tree.Node{

@@ -228,35 +228,6 @@ fn evalUnaryOp(self: Self, og_node: *const Node) rt.Result {
     return rt.Result.val(result);
 }
 
-fn setGeneric(self: Self, gtype: Type, symval: SymbolTable.SymbolValue) rt.Result {
-    if (gtype.getGenericInfo()) |info| { // it is generic
-        const generic_type: Type =
-            if (gtype.generic_type) |gen|
-                gen.*
-            else if (info.default) |default|
-                Type.init(default, null)
-            else
-                return rt.Result.err("Missing Generic Type", "The type is generic and needs a generic type", if (gtype.generic_type) |gen| gen.pos else gtype.pos);
-
-        symval.setGenericType(generic_type) catch |err| switch (err) {
-            error.OutOfMemory => std.debug.panic("OUT OF MEMORY!!!", .{}),
-            error.InvalidCast => return rt.Result.errPrint(
-                self.allocator,
-                "Invalid Cast",
-                "Can't convert {0s} to a {0s}<{1s}>",
-                .{ @tagName(gtype.value), generic_type },
-                null,
-            ),
-            error.NotGeneric => return rt.Result.err("Not Generic", "The type is not generic", null),
-            else => return rt.Result.err("Unknown Error", "PANIC", null),
-        };
-    } else {
-        if (gtype.generic_type) |_| return rt.Result.err("Not Generic", "The type is not generic", gtype.pos);
-    }
-
-    return rt.Result.none();
-}
-
 fn evalVarDecl(self: Self, og_node: *const Node) rt.Result {
     var ret_error: bool = false;
 
@@ -274,17 +245,13 @@ fn evalVarDecl(self: Self, og_node: *const Node) rt.Result {
         return err;
     }
 
-    const symval = rt.castToSymbolValue(self.allocator, value.clone(), node.type.value) catch {
-        ret_error = true;
-        return rt.Result.err("Invalid Cast", "The value can't be converted to the type (could be due to the value is too big or small)", (node.value orelse og_node).getPos());
-    };
-    defer if (ret_error) symval.deinit();
-
-    const generic_result = self.setGeneric(node.type, symval);
-    if (checkRuntimeErrorOrSignal(generic_result, og_node)) |err| {
+    var symval: SymbolTable.SymbolValue = undefined;
+    const rs = rt.castToTypeWithErrorMessage(self.allocator, value.clone(), node.type, &symval);
+    if (checkRuntimeErrorOrSignal(rs, og_node)) |err| {
         ret_error = true;
         return err;
     }
+    defer if (ret_error) symval.deinit();
 
     const symbol = SymbolTable.Symbol{ .is_const = node.is_const.n, .value = symval };
 
@@ -347,10 +314,7 @@ fn evalVarAssign(self: Self, og_node: *const Node) rt.Result {
                     return rt.Result.val(value.ref());
                 },
                 .symbol => |s| {
-                    s.ptr.value = rt.castToSymbolValue(self.allocator, value, s.type.value) catch {
-                        return rt.Result.err("Invalid Cast", "The value can't be converted to the type (could be due to the value is too big or small)", node.value.getPos());
-                    };
-                    const rs = self.setGeneric(s.type, s.ptr.value);
+                    const rs = rt.castToTypeWithErrorMessage(self.allocator, value, s.type, &s.ptr.value);
                     if (checkRuntimeErrorOrSignal(rs, og_node)) |err| return err;
                     return rt.Result.val(value);
                 },
@@ -503,13 +467,12 @@ fn evalCharacter(self: Self, og_node: *const Node) rt.Result {
 
 fn evalFunctionDecl(self: Self, og_node: *const Node) rt.Result {
     const node = og_node.function_decl;
-    std.debug.assert(node.ret_type.value == .type); // safety check
 
     const function = ty.BaseFunction{
         .name = node.identifier.lexeme,
         .params = node.params,
         .body = node.body,
-        .return_type = node.ret_type.value.type,
+        .return_type = node.ret_type,
         .parent_scope = self.symbols,
         // debug pos
         .name_pos = node.identifier.pos,
@@ -552,13 +515,13 @@ fn handleFunctionResult(self: Self, func: ty.Function, result: rt.Result, og_nod
         .signal => |signal| switch (signal) {
             .@"return" => |v| switch (func) {
                 .base => |basef| {
-                    const typed_value = rt.castToSymbolValue(self.allocator, v, basef.return_type) catch {
-                        const msg = std.fmt.allocPrint(self.allocator, "Function return an expected type, Expected {s} got {s}", .{ @tagName(basef.return_type), @tagName(result.value) }) catch unreachable;
-                        return rt.Result.errHeap(self.allocator, "Invalid return type", msg, basef.return_type_pos);
-                    };
-                    const value = rt.castToValue(typed_value);
-                    value.deinit(); // free memory since were cloning a heap value
-                    return rt.Result.val(v);
+                    defer v.deinit();
+
+                    var typed_value: SymbolTable.SymbolValue = undefined;
+                    const rs = rt.castToTypeWithErrorMessage(self.allocator, v.clone(), basef.return_type, &typed_value);
+                    if (checkRuntimeErrorOrSignal(rs, og_node)) |err| return err;
+                    const value = rt.castToValueNoRef(typed_value);
+                    return rt.Result.val(value);
                 },
                 .bultin => {
                     if (checkRuntimeErrorOrSignal(result, og_node)) |err| return err;
@@ -571,8 +534,8 @@ fn handleFunctionResult(self: Self, func: ty.Function, result: rt.Result, og_nod
     };
     switch (func) {
         .base => |basef| {
-            if (basef.return_type != .void) {
-                const msg = std.fmt.allocPrint(self.allocator, "Function return an expected type, Expected {s} got void", .{@tagName(func.base.return_type)}) catch unreachable;
+            if (basef.return_type.value != .void) {
+                const msg = std.fmt.allocPrint(self.allocator, "Function return an expected type, Expected {s} got void", .{@tagName(func.base.return_type.value)}) catch unreachable;
                 return rt.Result.errHeap(self.allocator, "Invalid return type", msg, func.base.return_type_pos);
             }
             return rt.Result.none();
