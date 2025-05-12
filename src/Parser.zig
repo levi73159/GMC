@@ -565,11 +565,29 @@ fn parseUnary(self: *Self) ParseError!*const tree.Node {
 }
 
 fn parsePrimary(self: *Self) ParseError!*const tree.Node {
-    var left = try self.parseBasePrimary();
-    while (self.consume(.left_bracket)) |_| {
+    const base = try self.parseBasePrimary();
+    return self.parsePosfix(base);
+}
+
+fn parsePosfix(self: *Self, left: *const tree.Node) ParseError!*const tree.Node {
+    if (self.consume(.left_bracket)) |_| {
         const index = try self.parseExpression();
         _ = self.consume(.right_bracket) orelse return self.badToken(error.MissingBracket);
-        left = try self.allocNode(tree.Node{ .index_access = .{ .value = left, .index = index } });
+
+        const new_node = try self.allocNode(tree.Node{
+            .index_access = .{ .value = left, .index = index },
+        });
+
+        return self.parsePosfix(new_node);
+    }
+
+    if (self.consume(.dot)) |_| {
+        const identifier = self.consume(.identifier) orelse return self.badToken(error.ExpectedIdentifier);
+        const new_node = try self.allocNode(tree.Node{
+            .field_access = .{ .value = left, .field = identifier },
+        });
+
+        return self.parsePosfix(new_node);
     }
 
     return left;
@@ -611,7 +629,7 @@ fn parseBasePrimary(self: *Self) ParseError!*const tree.Node {
             }
 
             const args = try self.parseArguments();
-            const end = self.consume(.right_paren) orelse return error.MissingParen;
+            const end = self.consume(.right_paren) orelse return self.badToken(error.MissingParen);
             return self.allocNode(tree.Node{ .call = .{ .callee = tok, .args = args, .end = end } });
         }
         return self.allocNode(tree.Node{ .identifier = tok });

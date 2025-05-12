@@ -10,6 +10,7 @@ const rt = @import("runtime.zig");
 const Value = rt.Value;
 const Result = rt.Result;
 
+const Type = @import("Type.zig");
 pub const TypeVal = @import("Token.zig").TypeValue;
 
 pub const List = @import("types/List.zig");

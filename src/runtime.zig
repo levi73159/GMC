@@ -161,6 +161,15 @@ pub const Value = union(enum) {
         return Value{ .runtime_error = Error{ .msg = msg, .extra = extra, .pos = pos } };
     }
 
+    pub fn errHeap(allocator: std.mem.Allocator, msg: []const u8, extra: []const u8, pos: ?Pos) Value {
+        return Value{ .runtime_error = Error{ .msg = msg, .extra = extra, .pos = pos, .extra_allocated = allocator } };
+    }
+
+    pub fn errPrint(allocator: std.mem.Allocator, msg: []const u8, comptime fmt: []const u8, args: anytype, pos: ?Pos) Value {
+        const extra = std.fmt.allocPrint(allocator, fmt, args) catch unreachable;
+        return Value.errHeap(allocator, msg, extra, pos);
+    }
+
     pub fn add(allocator: std.mem.Allocator, lhs_n: Value, rhs_n: Value) Value {
         const lhs = lhs_n.depointerizeToValue();
         const rhs = rhs_n.depointerizeToValue();
@@ -698,6 +707,16 @@ pub const Value = union(enum) {
             .string => |s| s.index(i),
             .list => |l| l.index(i),
             else => Value.err("Invalid type", "Value is not indexable", null),
+        };
+    }
+
+    pub fn field(self_n: Value, name: []const u8) Value {
+        const self = self_n.depointerizeToValue();
+        if (self == .runtime_error) return self;
+
+        return switch (self) {
+            .list => |l| l.field(name),
+            else => Value.err("Invalid Type", "Value doesn't have any fields (not a struct)", null),
         };
     }
 

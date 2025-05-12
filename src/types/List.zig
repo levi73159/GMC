@@ -2,6 +2,7 @@ const std = @import("std");
 const SymbolTable = @import("../SymbolTable.zig");
 const TypeVal = @import("../Token.zig").TypeValue;
 const Type = @import("../Type.zig");
+
 const rt = @import("../runtime.zig");
 
 const Value = rt.Value;
@@ -9,6 +10,8 @@ const Result = rt.Result;
 
 const Self = @This();
 const GROW_FACTOR = 2;
+
+const funcs = @import("List.funcs.zig");
 
 allocator: std.mem.Allocator,
 items: []SymbolTable.Symbol = &.{},
@@ -193,17 +196,6 @@ pub fn equal(self: *const Self, other: *const Self) Value {
     return rt.Value{ .boolean = true };
 }
 
-pub fn index(self: *Self, i: Value) Value {
-    defer self.deinit();
-    const iv = rt.castToIndex(i, self.items.len) catch return Value.err("IndexError", "Can't cast to index", null);
-    if (iv < 0 or iv >= self.items.len) return Value.err("IndexError", "Index out of range", null);
-    _ = self.items[iv].value.ref();
-    return Value{ .symbol = .{
-        .ptr = &self.items[iv],
-        .type = self.item_type,
-    } };
-}
-
 pub fn setImmutable(self: *Self, immutable: bool) *Self {
     self.immutable = immutable;
     return self;
@@ -238,4 +230,24 @@ pub fn repeat(self: *Self, times: i65) !*Self {
         try new.appendSliceSymbols(self.items);
     }
     return new;
+}
+
+pub fn index(self: *Self, i: Value) Value {
+    defer self.deinit();
+    const iv = rt.castToIndex(i, self.items.len) catch return Value.err("IndexError", "Can't cast to index", null);
+    if (iv < 0 or iv >= self.items.len) return Value.err("IndexError", "Index out of range", null);
+    _ = self.items[iv].value.ref();
+    return Value{ .symbol = .{
+        .ptr = &self.items[iv],
+        .type = self.item_type,
+    } };
+}
+
+pub fn field(self: *Self, name: []const u8) Value {
+    defer self.deinit();
+    if (std.mem.eql(u8, name, "length")) {
+        return Value{ .integer = @intCast(@as(isize, @intCast(self.items.len))) };
+    } else {
+        return Value.errPrint(self.allocator, "FieldError", "Unknown field '{s}'", .{name}, null);
+    }
 }

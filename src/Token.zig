@@ -32,6 +32,7 @@ pub const Kind = enum {
     bang,
     bang_equal,
     comma,
+    dot,
 
     semicolon,
     equal,

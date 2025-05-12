@@ -33,6 +33,7 @@ pub const Node = union(enum) {
     returnstmt: ReturnStmt,
     array: Array,
     index_access: IndexAccess,
+    field_access: FieldAccess,
 
     pub fn getLeftPos(self: Node) ?DebugPos {
         return switch (self) {
@@ -59,6 +60,7 @@ pub const Node = union(enum) {
             .returnstmt => |r| r.start.pos,
             .array => |a| a.start.pos,
             .index_access => |i| i.value.getLeftPos(),
+            .field_access => |f| f.value.getLeftPos(),
         };
     }
 
@@ -87,6 +89,7 @@ pub const Node = union(enum) {
             .returnstmt => |r| if (r.value) |value| value.getRightPos() else r.start.pos,
             .array => |a| a.end.pos,
             .index_access => |i| i.value.getRightPos(),
+            .field_access => |f| f.field.pos,
         };
     }
 
@@ -97,27 +100,15 @@ pub const Node = union(enum) {
     }
 
     pub fn deinit(self: Node) void {
-        switch (self) {
-            .number => |n| n.deinit(),
-            .string => |s| s.deinit(),
-            .char => |c| c.deinit(),
-            .boolean => |b| b.deinit(),
-            .block => |b| b.deinit(),
-            .identifier => {},
-            .bin_op => |b| b.deinit(),
-            .unary_op => |u| u.deinit(),
-            .var_decl => |v| v.deinit(),
-            .var_assign => |v| v.deinit(),
-            .ifstmt => |i| i.deinit(),
-            .forstmt => |f| f.deinit(),
-            .breakstmt => |b| b.deinit(),
-            .continuestmt => {},
-            .whilestmt => |w| w.deinit(),
-            .function_decl => |f| f.deinit(),
-            .call => |c| c.deinit(),
-            .returnstmt => |r| r.deinit(),
-            .array => |a| a.deinit(),
-            .index_access => |i| i.deinit(),
+        const T = @TypeOf(self);
+        const tag = std.meta.activeTag(self); // Get current union tag
+
+        inline for (@typeInfo(T).@"union".fields) |field| {
+            if (std.mem.eql(u8, field.name, @tagName(tag))) {
+                if (@hasDecl(field.type, "deinit")) {
+                    @field(self, field.name).deinit();
+                }
+            }
         }
     }
 };
@@ -334,5 +325,14 @@ pub const IndexAccess = struct {
     pub fn deinit(self: IndexAccess) void {
         self.value.deinit();
         self.index.deinit();
+    }
+};
+
+pub const FieldAccess = struct {
+    value: *const Node,
+    field: Token,
+
+    pub fn deinit(self: FieldAccess) void {
+        self.value.deinit();
     }
 };

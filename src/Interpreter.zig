@@ -104,6 +104,7 @@ pub fn evalNode(self: Self, node: *const Node) rt.Result {
         .returnstmt => self.evalReturn(node),
         .array => self.evalArray(node),
         .index_access => self.evalIndex(node),
+        .field_access => self.evalFieldAccess(node),
     };
 }
 
@@ -637,4 +638,16 @@ fn evalIndex(self: Self, og_node: *const Node) rt.Result {
     const value_at_index = val_value.index(val_index);
     if (checkRuntimeError(value_at_index, og_node)) |err| return err;
     return rt.Result.val(value_at_index);
+}
+
+fn evalFieldAccess(self: Self, og_node: *const Node) rt.Result {
+    const node = og_node.field_access;
+    const result = self.evalNode(node.value);
+    if (checkRuntimeErrorOrSignal(result, node.value)) |err| return err;
+    const value = result.value;
+    const field = node.field;
+
+    const value_at_field = value.field(field.lexeme);
+    if (checkRuntimeError(value_at_field, og_node)) |err| return err;
+    return rt.Result.val(value_at_field);
 }
