@@ -248,6 +248,19 @@ pub fn field(self: *Self, name: []const u8) Value {
     if (std.mem.eql(u8, name, "length")) {
         return Value{ .integer = @intCast(@as(isize, @intCast(self.items.len))) };
     } else {
-        return Value.errPrint(self.allocator, "FieldError", "Unknown field '{s}'", .{name}, null);
+        const decls = @typeInfo(funcs).@"struct".decls;
+        inline for (decls) |decl| {
+            if (std.mem.eql(u8, name, decl.name)) {
+                const func = @field(funcs, decl.name);
+                return Value{ .func = .{
+                    .bultin = .{
+                        .name = decl.name,
+                        .func = func,
+                        .is_method = true,
+                    },
+                } };
+            }
+        }
+        return Value.errPrint(self.allocator, "AttributeError", "'List' object has no attribute '{s}'", .{name}, null);
     }
 }

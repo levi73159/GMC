@@ -1,3 +1,5 @@
-const imlist x = [1, 2, 3, 4, 5];
+const list<int> x = [1, 2, 3, 4, 5];
 
-x.app
+x.append(6);
+
+println(x);

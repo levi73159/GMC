@@ -123,8 +123,17 @@ pub const BultinFunction = struct {
     name: []const u8,
     func: *const fn (args: []const Value, base: Intrepreter) Result,
 
+    is_method: bool = false,
+
     pub fn call(self: BultinFunction, args: []const Value, base: Intrepreter) Result {
         return self.func(args, base);
+    }
+
+    pub fn callWithType(self: BultinFunction, this: Value, args: []const Value, base: Intrepreter) Result {
+        const new_args = std.mem.concat(base.allocator, Value, &[_][]const Value{ &.{this}, args }) catch unreachable;
+        defer base.allocator.free(new_args);
+
+        return self.func(new_args, base);
     }
 };
 
@@ -139,10 +148,24 @@ pub const Function = union(enum) {
         };
     }
 
+    pub fn isMethod(self: Function) bool {
+        return switch (self) {
+            .base => false,
+            .bultin => |f| f.is_method,
+        };
+    }
+
     pub fn call(self: Function, args: []const Value, base: Intrepreter) Result {
         return switch (self) {
             .base => |f| f.call(args, base),
             .bultin => |f| f.call(args, base),
+        };
+    }
+
+    pub fn callWithType(self: Function, this: Value, args: []const Value, base: Intrepreter) Result {
+        return switch (self) {
+            .base => Result.err("Not supported", "Feature not supported", null),
+            .bultin => |f| f.callWithType(this, args, base),
         };
     }
 

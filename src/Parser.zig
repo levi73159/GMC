@@ -570,6 +570,22 @@ fn parsePrimary(self: *Self) ParseError!*const tree.Node {
 }
 
 fn parsePosfix(self: *Self, left: *const tree.Node) ParseError!*const tree.Node {
+    if (self.consume(.left_paren)) |_| {
+        if (self.consume(.right_paren)) |right| {
+            const new_node = try self.allocNode(tree.Node{
+                .call = .{ .callee = left, .args = &.{}, .end = right },
+            });
+            return self.parsePosfix(new_node);
+        }
+
+        const args = try self.parseArguments();
+        const right = self.consume(.right_paren) orelse return self.badToken(error.MissingParen);
+        const new_node = try self.allocNode(tree.Node{
+            .call = .{ .callee = left, .args = args, .end = right },
+        });
+        return self.parsePosfix(new_node);
+    }
+
     if (self.consume(.left_bracket)) |_| {
         const index = try self.parseExpression();
         _ = self.consume(.right_bracket) orelse return self.badToken(error.MissingBracket);
@@ -623,15 +639,6 @@ fn parseBasePrimary(self: *Self) ParseError!*const tree.Node {
         return self.parseString(tok, true);
     }
     if (self.consume(.identifier)) |tok| {
-        if (self.consume(.left_paren)) |_| {
-            if (self.consume(.right_paren)) |end| {
-                return self.allocNode(tree.Node{ .call = .{ .callee = tok, .args = &.{}, .end = end } });
-            }
-
-            const args = try self.parseArguments();
-            const end = self.consume(.right_paren) orelse return self.badToken(error.MissingParen);
-            return self.allocNode(tree.Node{ .call = .{ .callee = tok, .args = args, .end = end } });
-        }
         return self.allocNode(tree.Node{ .identifier = tok });
     }
 

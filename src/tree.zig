@@ -56,7 +56,7 @@ pub const Node = union(enum) {
             .continuestmt => |c| c.pos,
             .whilestmt => |w| w.start.pos,
             .function_decl => |f| f.start.pos,
-            .call => |c| c.callee.pos,
+            .call => |c| c.callee.getLeftPos(),
             .returnstmt => |r| r.start.pos,
             .array => |a| a.start.pos,
             .index_access => |i| i.value.getLeftPos(),
@@ -290,7 +290,7 @@ pub const FunctionDecl = struct {
 };
 
 pub const Call = struct {
-    callee: Token,
+    callee: *const Node,
     args: []const *const Node,
     end: Token,
 

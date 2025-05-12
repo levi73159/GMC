@@ -573,25 +573,48 @@ fn handleFunctionResult(self: Self, func: ty.Function, result: rt.Result, og_nod
     }
 }
 
-fn evalCall(self: Self, og_node: *const Node) rt.Result {
-    const node = og_node.call;
-    const callee = self.symbols.get(node.callee.lexeme) orelse {
-        return rt.Result.err("Symbol not found", "The symbol was not found", node.callee.pos);
-    };
-    // right now only functions can be called
-    switch (callee.value) {
+fn callValue(self: Self, og_node: *const Node, callee_value: ?rt.Value, callee_pos: ?Pos, value: rt.Value, args: []const *const Node) rt.Result {
+    switch (value) {
         .func => |func| {
             var args_buf: [256]rt.Value = undefined; // 256 is being geneous just in case the user tries to push the limit
-            const args_result = self.getArgs(&args_buf, node.args);
+            const args_result = self.getArgs(&args_buf, args);
             if (args_result == .res) {
                 return args_result.res;
             }
-            const args = args_result.args;
+            const actual_args = args_result.args;
 
-            const ret = func.call(args, self);
+            if (callee_value) |callee| {
+                if (!func.isMethod()) return rt.Result.err("Not a method", "The symbol is not a method", callee_pos);
+                const ret = func.callWithType(callee.ref(), actual_args, self);
+                return self.handleFunctionResult(func, ret, og_node);
+            }
+            const ret = func.call(actual_args, self);
             return self.handleFunctionResult(func, ret, og_node);
         },
-        else => return rt.Result.err("Not a function", "The symbol is not a function", node.callee.pos),
+        else => return rt.Result.err("Not a function", "The symbol is not a function", callee_pos),
+    }
+}
+
+fn evalCall(self: Self, og_node: *const Node) rt.Result {
+    const node = og_node.call;
+    switch (node.callee.*) {
+        .identifier => |ident| {
+            const callee = self.symbols.get(ident.lexeme) orelse {
+                return rt.Result.err("Symbol not found", "The symbol was not found", ident.pos);
+            };
+            return self.callValue(og_node, null, ident.pos, rt.castToValueNoRef(callee.value), node.args);
+        },
+        .field_access => |field_access| {
+            const base = self.evalNode(field_access.value);
+            if (checkRuntimeErrorOrSignal(base, og_node)) |err| return err;
+            const bvalue = base.value;
+
+            const field = bvalue.field(field_access.field.lexeme);
+            if (checkRuntimeError(field, og_node)) |err| return err;
+
+            return self.callValue(og_node, bvalue, field_access.field.pos, field.depointerizeToValue(), node.args);
+        },
+        else => return rt.Result.err("Not a callable", "Can't call a non-callable", node.callee.getPos()),
     }
 }
 
