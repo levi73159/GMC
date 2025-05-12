@@ -38,7 +38,7 @@ pub fn fromConcatChars(c1: u8, c2: u8, allocator: std.mem.Allocator) Self {
 pub fn deinit(self: Self) void {
     switch (self.mem_type) {
         .heap => |h| {
-            h.refs -|= 1;
+            h.refs -= 1;
             if (h.refs == 0) {
                 self.allocator.free(self.value);
                 self.allocator.destroy(h);
@@ -68,13 +68,14 @@ pub fn concat(self: Self, other: Self) !Self {
     const inner = try self.allocator.create(Self.Inner);
     inner.* = Self.Inner{ .refs = 1 };
 
-    self.deinit();
-    other.deinit();
-    return Self{
+    defer self.deinit();
+    defer other.deinit();
+    const s = Self{
         .value = new_value,
         .mem_type = .{ .heap = inner },
         .allocator = self.allocator,
     };
+    return s;
 }
 
 pub fn concatRaw(self: Self, other: []const u8) !Self {
@@ -82,7 +83,7 @@ pub fn concatRaw(self: Self, other: []const u8) !Self {
     const inner = try self.allocator.create(Self.Inner);
     inner.* = Self.Inner{ .refs = 1 };
 
-    self.deinit();
+    defer self.deinit();
     return Self{
         .value = new_value,
         .mem_type = .{ .heap = inner },

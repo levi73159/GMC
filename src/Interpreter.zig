@@ -106,7 +106,6 @@ pub fn evalNode(self: Self, node: *const Node) rt.Result {
         .array => self.evalArray(node),
         .index_access => self.evalIndex(node),
         .field_access => self.evalFieldAccess(node),
-        .includestmt => unreachable,
     };
 }
 
@@ -141,7 +140,11 @@ fn evalBlock(self: Self, og_node: *const Node) rt.Result {
         if (checkRuntimeErrorOrSignal(last_value, node)) |err| return err;
         last_value.value.deinit();
     }
-    return last_value;
+    const value = switch (last_value) {
+        .value => |val| rt.Result.val(val.clone()),
+        else => last_value,
+    };
+    return value;
 }
 
 fn evalNumber(_: Self, node: tree.Number) rt.Result {
@@ -157,7 +160,7 @@ fn evalBinOp(self: Self, og_node: *const Node) rt.Result {
 
     if (checkRuntimeErrorOrSignal(left, node.left)) |err| return err;
     const val_left = left.value;
-    defer val_left.deinit();
+    // defer val_left.deinit();
 
     // short circuiting operators
     switch (node.op.kind) {
@@ -179,7 +182,7 @@ fn evalBinOp(self: Self, og_node: *const Node) rt.Result {
     const right = self.evalNode(node.right);
     if (checkRuntimeErrorOrSignal(right, node.right)) |err| return err;
     const val_right = right.value;
-    defer val_right.deinit();
+    // defer val_right.deinit();
 
     const result = switch (node.op.kind) {
         .plus => rt.Value.add(self.allocator, val_left, val_right),
@@ -310,7 +313,10 @@ fn evalVarAssign(self: Self, og_node: *const Node) rt.Result {
             const old_symbol = self.symbols.get(ident.lexeme) orelse {
                 return rt.Result.err("Symbol not found", "The symbol was not found", ident.pos);
             };
+            defer old_symbol.value.deinit();
+
             if (self.static) return rt.Result.val(rt.castToValue(old_symbol.value));
+
             const typeval = rt.getTypeValFromSymbolValue(old_symbol.value) catch {
                 return rt.Result.err("Invalid Cast", "Can't convert the value into the type", og_node.getPos());
             };
@@ -323,7 +329,7 @@ fn evalVarAssign(self: Self, og_node: *const Node) rt.Result {
                 error.SymbolIsImmutable => return rt.Result.err("Symbol is immutable", "The symbol is immutable (const)", og_node.getPos()),
                 error.InvalidTypes => return rt.Result.err("Invalid Types", "Can't change a symbol's type", og_node.getPos()),
             };
-            return rt.Result.val(rt.castToValue(symval));
+            return rt.Result.val(rt.castToValue(symval).ref());
         },
         .index_access => {
             const target = self.evalNode(node.left);
@@ -368,6 +374,7 @@ fn evalIfStmt(self: Self, og_node: *const Node) rt.Result {
     if (boolean_value.boolean) {
         const then = self.evalNode(node.then);
         if (checkRuntimeErrorOrSignal(then, node.then)) |err| return err;
+        return then;
     } else {
         if (node.else_node) |else_node| {
             const else_value = self.evalNode(else_node);
@@ -419,6 +426,7 @@ fn evalForStmt(self: Self, og_node: *const Node) rt.Result {
             },
             else => return sigOrErr,
         };
+        defer body.value.deinit();
 
         const every_iteration = outer_scope.evalNode(node.every_iteration);
         if (checkRuntimeErrorOrSignal(every_iteration, node.every_iteration)) |err| return err;
@@ -446,6 +454,7 @@ fn evalWhileStmt(self: Self, og_node: *const Node) rt.Result {
         if (!boolean_value.boolean) break; // break out of loop
 
         const body = self.evalNode(node.body);
+        defer body.value.deinit();
         if (checkRuntimeErrorOrSignal(body, node.body)) |sigOrErr| switch (sigOrErr) {
             .signal => |signal| switch (signal) {
                 .@"break" => |v| return rt.Result.val(v),
@@ -675,50 +684,4 @@ fn evalFieldAccess(self: Self, og_node: *const Node) rt.Result {
     const value_at_field = value.field(field.lexeme);
     if (checkRuntimeError(value_at_field, og_node)) |err| return err;
     return rt.Result.val(value_at_field);
-}
-
-fn evalInclude(_: Self, _: *const Node) rt.Result {
-    // const node = og_node.includestmt;
-    // const path = node.path;
-    //
-    // const Lexer = @import("Lexer.zig");
-    // const Parser = @import("Parser.zig");
-    //
-    // var arena = std.heap.ArenaAllocator.init(self.allocator);
-    // defer arena.deinit();
-    //
-    // const aallocator = arena.allocator();
-    //
-    // const cwd = std.fs.cwd();
-    // var out_buf: [std.fs.max_path_bytes]u8 = undefined;
-    // std.log.debug("Current working directory: {!s}", .{cwd.realpath(".", &out_buf)});
-    // const file = std.fs.cwd().openFile(path.lexeme[1..path.lexeme.len-1], .{}) catch |err| switch (err) {
-    //     error.FileNotFound => return rt.Result.err("File not found", "The file was not found", path.pos),
-    //     else => return rt.Result.err("Error opening file", "The file could not be opened", path.pos),
-    // };
-    // defer file.close();
-    //
-    // const contents = file.readToEndAlloc(aallocator, std.math.maxInt(usize)) catch |err| switch (err) {
-    //     error.FileTooBig => return rt.Result.err("File too large", "The file was too large", path.pos),
-    //     else => return rt.Result.err("Error reading file", "The file could not be read", path.pos),
-    // };
-    // defer aallocator.free(contents);
-    //
-    // var lexer = Lexer.init(contents);
-    // const tokens = lexer.makeTokens(aallocator) catch |err| {
-    //     return rt.Result.errPrint(self.allocator, "Lexer Error", "The file \"{s}\" could not be lexed due to: {s}", .{ path.lexeme, @errorName(err) }, lexer.prev);
-    // };
-    //
-    // var parser = Parser.init(tokens, aallocator, self.allocator);
-    // const nodes = parser.parse() catch |err| {
-    //     return rt.Result.errPrint(self.allocator, "Parser Error", "The file \"{s}\" could not be parsed due to: {s}", .{ path.lexeme, @errorName(err) }, (parser.prev orelse path).pos);
-    // };
-    // defer parser.deinit(nodes);
-    //
-    // const result = self.eval(nodes);
-    // if (!result) {
-    //     return rt.Result.err("Error evaluating included file", "The included file could not be evaluated", path.pos);
-    // }
-    //
-    // return rt.Result.none();
 }

@@ -1,0 +1,24 @@
+func split(str value, char delimiter) imlist {
+    const list<str> result = [];
+    var str result_buf = "";
+    
+    for (var u64 i = 0; i < len(value); i++;) {
+        const char c = value[i];
+        if (c == delimiter) {
+            result.append(result_buf);
+            result_buf = "";
+        } else {
+            result_buf += c;
+        }
+    }
+
+    if (len(result_buf) > 0) {
+        result.append(result_buf);
+    }
+
+    return result;
+}
+
+const imlist<str> result = split("Hello world!", ' ');
+
+println(result);

@@ -18,7 +18,7 @@ pub fn append(args: []const rt.Value, _: Interpreter) rt.Result {
     const list = args[0].list;
     const item = args[1];
 
-    list.append(item) catch |e| switch (e) {
+    list.append(item.clone().ref()) catch |e| switch (e) {
         error.OutOfMemory => @panic("out of memory"),
         error.ImmutableList => return err("Immutable List", "Can't append to an immutable list"),
         error.InvalidCast => return err("Invalid Type", "Can't append value to list because of invalid type"),

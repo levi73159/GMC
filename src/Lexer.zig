@@ -111,7 +111,6 @@ pub fn makeTokens(self: *Self, allocator: mem.Allocator) ![]const Token {
 
     while (try self.next()) |token| {
         try tokens.append(token);
-        std.log.debug("Token: {s} {s}", .{ token.lexeme, @tagName(token.kind) });
     }
 
     return tokens.toOwnedSlice();
@@ -405,10 +404,8 @@ fn defineMacro(self: *Self) !void {
         if (semi_colon_count == 1 and token.kind != .semicolon) {
             semi_colon_count = 0;
             try macro_tokens.append(last_token.?);
-            std.log.debug("token: {s}\n", .{last_token.?.lexeme});
         }
         try macro_tokens.append(token);
-        std.log.debug("token: {s}\n", .{token.lexeme});
     }
 
     self.macros.put(macro_name.lexeme, try macro_tokens.toOwnedSlice()) catch unreachable;

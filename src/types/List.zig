@@ -164,6 +164,7 @@ fn needGrow(self: *Self) !void {
 // for immutable lists resize is a no-op
 pub fn resize(self: *Self, len: usize) !void {
     if (self.immutable) return;
+    if (self.items.len == len) return;
     std.debug.assert(len > self.items.len);
     const old_len = self.items.len;
     self.items = try self.allocator.realloc(self.items.ptr[0..self.capacity], len);

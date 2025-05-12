@@ -803,6 +803,13 @@ pub const Result = union(enum) {
             .signal = s,
         };
     }
+
+    pub fn deinit(self: Result) void {
+        switch (self) {
+            .value => |v| v.deinit(),
+            else => {},
+        }
+    }
 };
 
 pub fn safeIntCast(comptime TO: type, v_n: Value) !TO {
@@ -900,6 +907,7 @@ pub fn safeListCast(allocator: std.mem.Allocator, v_n: Value, immutable: bool) a
             if (l.immutable == immutable) return l;
             return l.recursiveMutablity(immutable);
         },
+        .none => types.List.init(allocator, immutable),
         else => return error.InvalidCast,
     };
 }
