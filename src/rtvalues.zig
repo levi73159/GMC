@@ -74,6 +74,7 @@ pub const Value = union(enum) {
 
     // converts the value to a boolean value
     pub fn convertToBool(self: Value) Value {
+        defer self.deinit();
         return switch (self) {
             .integer => |i| Value{ .boolean = i != 0 },
             .float => |f| Value{ .boolean = f != 0.0 },

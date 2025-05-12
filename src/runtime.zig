@@ -84,9 +84,10 @@ pub fn safeBoolCast(v: Value) !bool {
 
 pub fn safeStrCast(allocator: std.mem.Allocator, v_n: Value) !types.String {
     const v = v_n.depointerizeToValue();
+    defer v.deinit();
 
     return switch (v) {
-        .string => |s| s,
+        .string => |s| s.ref(), // since we deinit
         .char => |c| types.String{ .allocator = allocator, .value = &[_]u8{c}, .mem_type = .stack },
         .none => types.String{ .allocator = allocator, .value = "", .mem_type = .stack },
         .integer => blk: {
@@ -100,6 +101,8 @@ pub fn safeStrCast(allocator: std.mem.Allocator, v_n: Value) !types.String {
 
 pub fn safeListCast(allocator: std.mem.Allocator, v_n: Value, immutable: bool) anyerror!*types.List {
     const v = v_n.depointerizeToValue();
+    defer v.deinit();
+
     return switch (v) {
         .string => |s| blk: {
             const new = types.List.init(allocator, immutable);
@@ -110,8 +113,8 @@ pub fn safeListCast(allocator: std.mem.Allocator, v_n: Value, immutable: bool) a
             break :blk new;
         },
         .list => |l| {
-            if (l.immutable == immutable) return l;
-            return l.recursiveMutablity(immutable);
+            if (l.immutable == immutable) return l.ref();
+            return l.recursiveMutablity(immutable).ref();
         },
         .none => types.List.init(allocator, immutable),
         else => return error.InvalidCast,

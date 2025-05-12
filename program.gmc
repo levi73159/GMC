@@ -20,5 +20,6 @@ func split(str value, char delimiter) imlist<str> {
 }
 
 const imlist<str> result = split("Hello world!", ' ');
+const imlist<bool> equals = result;
 
-println(result);
+println(result, equals);
