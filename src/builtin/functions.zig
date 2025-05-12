@@ -127,7 +127,9 @@ pub fn eval(args: []const rt.Value, base: Interpreter) rt.Result {
     const allocator = arena.allocator();
 
     const expr = args[0].string;
-    var lexer = Lexer.init(expr.value);
+    var lexer = Lexer.init(base.allocator, expr.value);
+    defer lexer.deinit();
+
     const tokens = lexer.makeTokens(allocator) catch |e| {
         return errHeap(base.allocator, "Lexer Error", "Failed to evalulate: {s} due to {s}", .{ expr.value, @errorName(e) });
     };

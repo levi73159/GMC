@@ -1,0 +1,3 @@
+func sayHello(str name) void {
+    println("Hello, " + name);
+}

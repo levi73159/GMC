@@ -34,6 +34,7 @@ pub const Node = union(enum) {
     array: Array,
     index_access: IndexAccess,
     field_access: FieldAccess,
+    includestmt: IncludeStmt,
 
     pub fn getLeftPos(self: Node) ?DebugPos {
         return switch (self) {
@@ -61,6 +62,7 @@ pub const Node = union(enum) {
             .array => |a| a.start.pos,
             .index_access => |i| i.value.getLeftPos(),
             .field_access => |f| f.value.getLeftPos(),
+            .includestmt => |i| i.start.pos,
         };
     }
 
@@ -90,6 +92,7 @@ pub const Node = union(enum) {
             .array => |a| a.end.pos,
             .index_access => |i| i.value.getRightPos(),
             .field_access => |f| f.field.pos,
+            .includestmt => |i| i.path.pos,
         };
     }
 
@@ -335,4 +338,9 @@ pub const FieldAccess = struct {
     pub fn deinit(self: FieldAccess) void {
         self.value.deinit();
     }
+};
+
+pub const IncludeStmt = struct {
+    start: Token,
+    path: Token,
 };

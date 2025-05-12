@@ -470,6 +470,23 @@ Converts a value to a string representation.
 
 ---
 
+## 🔮 Macros
+
+Macros are a powerful way to extend GMC's syntax and functionality.
+They can be used to define custom syntax, functions, or other code blocks.
+
+Macros are defined using the `$` character followed by the command (e.g., `define` or `include`).
+
+Macros can be expanded by using the `@` character followed by the macro name.
+When defining a macro the `;;` syntax is used to define the end of the macro.
+
+```gmc
+$include "include.gmc"
+$define call sayHello("Levi"); println("Hello World") ;;
+
+@call;
+```
+
 ## 🔮 Future Plans
 
 * User-defined types (structs, enums)

@@ -165,7 +165,8 @@ fn runFile(dbg: std.mem.Allocator, file: std.fs.File) !void {
 }
 
 fn run(text: []const u8, allocator: std.mem.Allocator, dbg_allocator: std.mem.Allocator, symbols: *SymbolTable, force_heap: bool) void {
-    var lexer = Lexer.init(text);
+    var lexer = Lexer.init(dbg_allocator, text);
+    defer lexer.deinit();
     const tokens = lexer.makeTokens(allocator) catch |err| switch (err) {
         error.OutOfMemory => {
             std.process.exit(255);
@@ -208,5 +209,9 @@ fn run(text: []const u8, allocator: std.mem.Allocator, dbg_allocator: std.mem.Al
     var interperter = Interpreter.init(dbg_allocator, symbols);
     interperter.heap_str_only = force_heap;
 
-    interperter.eval(nodes);
+    const result = interperter.eval(nodes);
+    if (!result) {
+        std.log.err("Error evaluating program\n", .{});
+        std.process.exit(1);
+    }
 }

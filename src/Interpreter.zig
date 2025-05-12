@@ -34,7 +34,7 @@ pub fn newScope(self: Self, symbols: *SymbolTable, allocator: std.mem.Allocator)
     };
 }
 
-pub fn eval(self: Self, nodes: []const *const Node) void {
+pub fn eval(self: Self, nodes: []const *const Node) bool {
     for (nodes) |node| {
         var result = self.evalNode(node);
         if (result == .signal) {
@@ -51,11 +51,12 @@ pub fn eval(self: Self, nodes: []const *const Node) void {
                     std.debug.print("{}\n", .{pos});
                     std.debug.print("line: {d}, column: {d}\n", .{ pos.line, pos.column });
                 }
-                return; // if error in program return instantly
+                return false; // if error in program return instantly
             },
             else => {},
         }
     }
+    return true;
 }
 
 pub fn evalResult(self: Self, nodes: []const *const Node) rt.Result {
@@ -105,6 +106,7 @@ pub fn evalNode(self: Self, node: *const Node) rt.Result {
         .array => self.evalArray(node),
         .index_access => self.evalIndex(node),
         .field_access => self.evalFieldAccess(node),
+        .includestmt => unreachable,
     };
 }
 
@@ -673,4 +675,50 @@ fn evalFieldAccess(self: Self, og_node: *const Node) rt.Result {
     const value_at_field = value.field(field.lexeme);
     if (checkRuntimeError(value_at_field, og_node)) |err| return err;
     return rt.Result.val(value_at_field);
+}
+
+fn evalInclude(_: Self, _: *const Node) rt.Result {
+    // const node = og_node.includestmt;
+    // const path = node.path;
+    //
+    // const Lexer = @import("Lexer.zig");
+    // const Parser = @import("Parser.zig");
+    //
+    // var arena = std.heap.ArenaAllocator.init(self.allocator);
+    // defer arena.deinit();
+    //
+    // const aallocator = arena.allocator();
+    //
+    // const cwd = std.fs.cwd();
+    // var out_buf: [std.fs.max_path_bytes]u8 = undefined;
+    // std.log.debug("Current working directory: {!s}", .{cwd.realpath(".", &out_buf)});
+    // const file = std.fs.cwd().openFile(path.lexeme[1..path.lexeme.len-1], .{}) catch |err| switch (err) {
+    //     error.FileNotFound => return rt.Result.err("File not found", "The file was not found", path.pos),
+    //     else => return rt.Result.err("Error opening file", "The file could not be opened", path.pos),
+    // };
+    // defer file.close();
+    //
+    // const contents = file.readToEndAlloc(aallocator, std.math.maxInt(usize)) catch |err| switch (err) {
+    //     error.FileTooBig => return rt.Result.err("File too large", "The file was too large", path.pos),
+    //     else => return rt.Result.err("Error reading file", "The file could not be read", path.pos),
+    // };
+    // defer aallocator.free(contents);
+    //
+    // var lexer = Lexer.init(contents);
+    // const tokens = lexer.makeTokens(aallocator) catch |err| {
+    //     return rt.Result.errPrint(self.allocator, "Lexer Error", "The file \"{s}\" could not be lexed due to: {s}", .{ path.lexeme, @errorName(err) }, lexer.prev);
+    // };
+    //
+    // var parser = Parser.init(tokens, aallocator, self.allocator);
+    // const nodes = parser.parse() catch |err| {
+    //     return rt.Result.errPrint(self.allocator, "Parser Error", "The file \"{s}\" could not be parsed due to: {s}", .{ path.lexeme, @errorName(err) }, (parser.prev orelse path).pos);
+    // };
+    // defer parser.deinit(nodes);
+    //
+    // const result = self.eval(nodes);
+    // if (!result) {
+    //     return rt.Result.err("Error evaluating included file", "The included file could not be evaluated", path.pos);
+    // }
+    //
+    // return rt.Result.none();
 }

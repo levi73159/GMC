@@ -13,13 +13,39 @@ prev: DebugPos = DebugPos{
     .orginal_buffer = undefined,
 },
 
-pub fn init(buffer: []const u8) Self {
-    return Self{ .buffer = buffer, .prev = DebugPos{
-        .orginal_buffer = buffer,
-    } };
+allocator: mem.Allocator,
+macros: std.StringHashMap([]const Token),
+
+macro_buffer: std.ArrayList(Token), // used for macro expansion or include
+macro_buffer_index: usize = 0,
+
+file_contents: std.ArrayList([]const u8),
+
+pub fn init(allocator: mem.Allocator, buffer: []const u8) Self {
+    return Self{
+        .buffer = buffer,
+        .prev = DebugPos{
+            .orginal_buffer = buffer,
+        },
+        .allocator = allocator,
+        .macro_buffer = std.ArrayList(Token).init(allocator),
+        .file_contents = std.ArrayList([]const u8).init(allocator),
+        .macros = std.StringHashMap([]const Token).init(allocator),
+    };
 }
 
-pub fn next(self: *Self) !?Token {
+pub fn deinit(self: *Self) void {
+    self.macro_buffer.deinit();
+    for (self.file_contents.items) |contents| self.allocator.free(contents);
+    self.file_contents.deinit();
+    var value_iterator = self.macros.valueIterator();
+    while (value_iterator.next()) |tokens| self.allocator.free(tokens.*);
+    self.macros.deinit();
+}
+
+pub fn next(self: *Self) anyerror!?Token {
+    if (self.expandMacro()) |token| return token;
+
     self.skipWhitespace(); // skip whitespace
 
     const c = self.advance() orelse return null; // we know the next character is usable because we skipped whitespace
@@ -66,6 +92,14 @@ pub fn next(self: *Self) !?Token {
         '"' => try self.makeString(false),
         '[' => self.initToken(.left_bracket, "["),
         ']' => self.initToken(.right_bracket, "]"),
+        '$' => blk: {
+            try self.macro();
+            break :blk self.next();
+        },
+        '@' => blk: {
+            try self.getExpandMacro();
+            break :blk self.next();
+        },
         else => return error.InvalidCharacter,
     };
 }
@@ -76,6 +110,7 @@ pub fn makeTokens(self: *Self, allocator: mem.Allocator) ![]const Token {
 
     while (try self.next()) |token| {
         try tokens.append(token);
+        std.log.debug("Token: {s} {s}", .{ token.lexeme, @tagName(token.kind) });
     }
 
     return tokens.toOwnedSlice();
@@ -315,4 +350,92 @@ fn isType(lexeme: []const u8) ?Token.Value {
         return Token.Value{ .type = value };
     }
     return null;
+}
+
+fn macro(self: *Self) !void {
+    const macro_ident = try self.next() orelse return error.UnexpectedEOF;
+    if (macro_ident.kind != .identifier) return error.ExpectedMacroIdentifier;
+
+    if (std.mem.eql(u8, macro_ident.lexeme, "include")) {
+        try self.includeMacro();
+    } else if (std.mem.eql(u8, macro_ident.lexeme, "define")) {
+        try self.defineMacro();
+    } else {
+        return error.UnknownMacroCommand;
+    }
+}
+
+fn includeMacro(self: *Self) !void {
+    const include_path_str = try self.next() orelse return error.UnexpectedEOF;
+    if (include_path_str.kind != .string) return error.ExpectedIncludePath;
+
+    const include_path = include_path_str.lexeme[1 .. include_path_str.lexeme.len - 1];
+
+    const file = try std.fs.cwd().openFile(include_path, .{});
+    defer file.close();
+
+    const contents = try file.readToEndAlloc(self.allocator, std.math.maxInt(usize));
+    self.file_contents.append(contents) catch unreachable;
+
+    var lexer = Self.init(self.allocator, contents);
+    while (try lexer.next()) |token| {
+        try self.macro_buffer.append(token);
+    }
+}
+
+fn defineMacro(self: *Self) !void {
+    const macro_name = try self.next() orelse return error.UnexpectedEOF;
+    if (macro_name.kind != .identifier) return error.ExpectedMacroIdentifier;
+    var semi_colon_count: u8 = 0; // if we find two semicolons in a row we are done
+    var last_token: ?Token = null;
+
+    var macro_tokens = std.ArrayList(Token).init(self.allocator);
+    errdefer macro_tokens.deinit();
+
+    // make until end of line
+    while (try self.next()) |token| {
+        defer last_token = token;
+        if (token.kind == .semicolon) {
+            semi_colon_count += 1;
+            if (semi_colon_count == 2) break;
+            continue;
+        }
+        if (semi_colon_count == 1 and token.kind != .semicolon) {
+            semi_colon_count = 0;
+            try macro_tokens.append(last_token.?);
+            std.log.debug("token: {s}\n", .{last_token.?.lexeme});
+        }
+        try macro_tokens.append(token);
+        std.log.debug("token: {s}\n", .{token.lexeme});
+    }
+
+    self.macros.put(macro_name.lexeme, try macro_tokens.toOwnedSlice()) catch unreachable;
+}
+
+fn expandMacro(self: *Self) ?Token {
+    if (self.macro_buffer.items.len == 0) return null;
+    if (self.macro_buffer_index >= self.macro_buffer.items.len) {
+        self.macro_buffer.clearAndFree();
+        self.macro_buffer_index = 0;
+        return null;
+    }
+    const token = self.macro_buffer.items[self.macro_buffer_index];
+    self.macro_buffer_index += 1;
+    return token;
+}
+
+fn getExpandMacro(self: *Self) !void {
+    const macro_name = try self.next() orelse return error.UnexpectedEOF;
+    if (macro_name.kind != .identifier) return error.ExpectedMacroIdentifier;
+
+    if (self.macros.get(macro_name.lexeme)) |tokens| {
+        var i: usize = tokens.len - 1;
+        if (self.macro_buffer.items.len == 0) {
+            try self.macro_buffer.appendSlice(tokens);
+        } else {
+            while (i > 0) : (i -= 1) {
+                try self.macro_buffer.insert(self.macro_buffer_index + 1, tokens[i]);
+            }
+        }
+    }
 }
