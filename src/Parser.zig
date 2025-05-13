@@ -281,7 +281,7 @@ fn parseType(self: *Self) ParseError!Type {
 fn parseVariableDecl(self: *Self) ParseError!*const tree.Node {
     const tok = self.advance().?; // should never be null
     const is_const = tok.kind == .const_kw;
-    const t = try self.parseType();
+    const t = if (self.match(.type)) try self.parseType() else Type.any();
 
     const identifier = self.consume(.identifier) orelse return self.badToken(error.ExpectedIdentifier);
     const value: ?*const tree.Node = if (self.consume(.equal)) |_| try self.parseExpression() else null;

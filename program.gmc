@@ -1,9 +1,9 @@
 func split(str value, char delimiter) imlist<str> {
     const list<str> result = [];
-    var str result_buf = "";
+    var result_buf = "";
     
     for (var u64 i = 0; i < len(value); i++;) {
-        const char c = value[i];
+        const c = value[i];
         if (c == delimiter) {
             result.append(result_buf);
             result_buf = "";
@@ -19,7 +19,6 @@ func split(str value, char delimiter) imlist<str> {
     return result;
 }
 
-const imlist<str> result = split("Hello world!", ' ');
-const imlist<bool> equals = result;
+const result = split("Hello world!", ' ');
 
-println(result, equals);
+println(result);
