@@ -19,6 +19,6 @@ func split(str value, char delimiter) imlist<str> {
     return result;
 }
 
-const result = split("Hello world!", ' ');
+const result = split("Hello world! how are you?", ' ');
 
 println(result);

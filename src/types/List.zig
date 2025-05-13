@@ -94,7 +94,9 @@ pub fn clone(self: *Self) *Self {
     const cloned_items = self.allocator.alloc(SymbolTable.Symbol, self.items.len) catch unreachable;
     defer self.allocator.free(cloned_items);
     for (cloned_items, self.items) |*new, old| new.* = old.clone();
-    const list = Self.fromSymbols(self.allocator, cloned_items); // immutablity doesn't matter cause it is handled by the caller
+    var list = Self.fromSymbols(self.allocator, cloned_items); // immutablity doesn't matter cause it is handled by the caller
+    list.item_type = self.item_type;
+    list.immutable = self.immutable;
     return list;
 }
 
