@@ -221,7 +221,7 @@ fn typeInfer(v_n: Value, infer_type: InferType) !SymbolTable.SymbolValue {
         .all => {},
         .enums => {
             switch (v) {
-                .@"enum" => {},
+                .@"enum", .enum_instance => {},
                 else => return error.InvalidCast,
             }
         },
@@ -235,6 +235,7 @@ fn typeInfer(v_n: Value, infer_type: InferType) !SymbolTable.SymbolValue {
         .func => |f| SymbolTable.SymbolValue{ .func = f },
         .list => |l| SymbolTable.SymbolValue{ .list = l },
         .@"enum" => |e| SymbolTable.SymbolValue{ .@"enum" = e },
+        .enum_instance => |e| SymbolTable.SymbolValue{ .enum_instance = e },
         .none => SymbolTable.SymbolValue{ .void = {} },
         else => return error.InvalidCast,
     };
@@ -293,6 +294,7 @@ pub fn castToValueNoRef(v: SymbolTable.SymbolValue) Value {
         .type => |t| Value{ .type = t },
         .list => |l| Value{ .list = l },
         .@"enum" => |e| Value{ .@"enum" = e },
+        .enum_instance => |e| Value{ .enum_instance = e },
     };
 }
 
@@ -314,6 +316,7 @@ pub fn getTypeValFromSymbolValue(v: SymbolTable.SymbolValue) !TypeVal {
         .void => TypeVal.void,
         .list => TypeVal.list,
         .type => TypeVal.type,
+        .enum_instance => TypeVal.anyenum, // enum_instance is the same as anyenum but without a specific enum type
         .func, .@"enum" => return error.InvalidType, // func does not havea typeval
     };
 }

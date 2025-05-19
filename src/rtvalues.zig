@@ -50,7 +50,9 @@ pub const Value = union(enum) {
     list: *types.List,
 
     type: types.TypeInfo,
-    @"enum": types.Enum,
+
+    @"enum": types.Enum, // the type definition of an enum
+    enum_instance: types.Enum.Instance, // the instance of an enum aka value (Enum.xyz) will return this
 
     ptr: *Value, // all pointers are nonconst
     symbol: SymbolPtr,
@@ -91,6 +93,11 @@ pub const Value = union(enum) {
             .symbol => |s| castToValueNoRef(s.ptr.value).convertToBool(),
             .type => Value{ .boolean = true },
             .@"enum" => Value{ .boolean = true },
+            .enum_instance => |e| {
+                if (e.field.value == .bool) return Value{ .boolean = e.field.value.bool };
+                const val = rt.castToValueNoRef(e.field.value);
+                return val.convertToBool();
+            },
         };
     }
 
@@ -520,6 +527,10 @@ pub const Value = union(enum) {
                 .none => return l.items.len == 0,
                 else => return false,
             },
+            .enum_instance => |e| switch (rhs) {
+                .enum_instance => |j| return e.equal(j),
+                else => return false,
+            },
             else => return false,
         }
     }
@@ -581,6 +592,10 @@ pub const Value = union(enum) {
                 .list => |j| l.equal(j),
                 .none => Value{ .boolean = l.items.len == 0 },
                 else => Value.err("Invalid type", "Can't compare list to nonlist values", null),
+            },
+            .enum_instance => |e| switch (rhs) {
+                .enum_instance => |j| Value{ .boolean = e.equal(j) },
+                else => Value.err("Invalid type", "Can't compare enum to nonenum values", null),
             },
             else => Value.err("Invalid type", "Can't compare nonnumeric values", null),
         };
@@ -720,6 +735,7 @@ pub const Value = union(enum) {
 
         return switch (self) {
             .list => |l| l.field(name),
+            .@"enum" => |e| e.field(name),
             else => Value.err("Invalid Type", "Value doesn't have any fields (not a struct)", null),
         };
     }
@@ -763,6 +779,7 @@ pub const Value = union(enum) {
             },
             .ptr, .symbol => try writer.print("{}", .{self.depointerizeToValue()}),
             .@"enum" => |e| try writer.print("[Type enum: {s}]", .{e.enum_name}),
+            .enum_instance => |e| try writer.print("{}", .{e.field.value}),
             .type => |t| try writer.print("[Type any({d}): {s}({d}]", .{ t.type_uuid, t.define.type_name, t.define.size }),
         }
     }

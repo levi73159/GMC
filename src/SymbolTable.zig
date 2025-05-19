@@ -9,6 +9,7 @@ const Self = @This();
 pub const SymbolValue = union(enum) {
     // structure types (aka struct, class, enum)
     @"enum": types.Enum,
+    enum_instance: types.Enum.Instance,
 
     // value types
     u8: u8,
@@ -160,7 +161,36 @@ pub const SymbolValue = union(enum) {
             .func => 8, // act as pointer
             .void, .type => 0, // comptime or none size
             .@"enum" => |e| e.tagged.size() orelse 8,
+            .enum_instance => |e| e.field.value.size(),
         };
+    }
+
+    pub fn format(
+        self: SymbolValue,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: std.io.AnyWriter,
+    ) !void {
+        switch (self) {
+            .u8, .u16, .u32, .u64, .i8, .i16, .i32, .i64, .float => try writer.print("{d}", .{self}),
+            .char => try writer.print("{c}", .{self}),
+            .bool => try writer.print("{}", .{self}),
+            .string => |s| try writer.print("{s}", .{s.value}),
+            .list => |l| {
+                try writer.writeByte('[');
+                for (l.items, 0..) |item, i| {
+                    if (i != 0) try writer.writeByte(' ');
+                    try writer.print("{}", .{item.value});
+                    if (i != l.items.len - 1) try writer.writeByte(',');
+                }
+                try writer.writeByte(']');
+            },
+            .func => |f| try writer.print("[func {s}]", .{f.getName()}),
+            .void => try writer.writeAll("void"),
+            .enum_instance => |e| try writer.print("{}", .{e.field.value}),
+            .type => |t| try writer.print("[Type any({d}): {s}({d})]", .{ t.type_uuid, t.define.type_name, t.define.size }),
+            .@"enum" => |e| try writer.print("[Type enum: {s}]", .{e.enum_name}),
+        }
     }
 };
 pub const SymbolType = std.meta.Tag(SymbolValue);

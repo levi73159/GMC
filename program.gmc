@@ -10,14 +10,15 @@ enum Another {
 const anyenum you = IsGay.yes;
 const anyenum me = IsGay.no;
 
-const anyenum another = Another.x;
+var anyenum another = Another.x;
+another = IsGay.yes;
 
-print(you == me); # false
-print(you == IsGay.yes); # true
-print(me == IsGay.no); # true
+println(you == me); # false
+println(you == IsGay.yes); # true
+println(me == IsGay.no); # true
 
-print(another == Another.x); # true
-print(another == Another.y); # false
-print(another == Another.z); # false
+println(another == Another.x); # true
+println(another == Another.y); # false
+println(another == Another.z); # false
 
-print(another == you); # false
+println(another == you); # false

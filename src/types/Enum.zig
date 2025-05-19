@@ -19,9 +19,8 @@ pub const Field = struct {
 
 // Enum Instance aka doing EnumType.name will return instance with said field
 pub const Instance = struct {
-    field: Field,
+    field: *const Field,
     type_uuid: u64, // not from the same enum
-    strict: bool, // type information whether it is strict or not, use in symbol table
 
     pub fn equal(self: Instance, other: Instance) bool {
         if (self.type_uuid != other.type_uuid) return false; // not
@@ -60,4 +59,18 @@ pub fn asTypeInfo(self: Self) ty.TypeInfo {
         .type_uuid = self.uuid,
         .is_generic = false,
     };
+}
+
+pub fn field(self: Self, name: []const u8) Value {
+    for (self.fields) |*f| {
+        if (std.mem.eql(u8, f.name, name)) {
+            return Value{
+                .enum_instance = Instance{
+                    .field = f,
+                    .type_uuid = self.uuid,
+                },
+            };
+        }
+    }
+    return Value.err("Field does not exist", "The field does not exist", null);
 }
