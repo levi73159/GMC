@@ -121,7 +121,111 @@ pub fn safeListCast(allocator: std.mem.Allocator, v_n: Value, immutable: bool) a
     };
 }
 
-fn typeInfer(v: Value) !SymbolTable.SymbolValue {
+pub fn safeTypeCast(v_n: Value) !types.TypeInfo {
+    const v = v_n.depointerizeToValue();
+    defer v.deinit();
+    return switch (v) {
+        .type => |t| t,
+        .@"enum" => |e| e.asTypeInfo(),
+        .integer => types.TypeInfo{
+            .define = .{
+                .type_name = "integer",
+                .alias = "int",
+                .base_name = "i64+1",
+                .size = 8,
+                .is_builtin = true,
+            },
+            .is_generic = false,
+            .type_uuid = 0,
+        },
+        .float => types.TypeInfo{
+            .define = .{
+                .type_name = "float",
+                .base_name = "f64",
+                .size = 8,
+                .is_builtin = true,
+            },
+            .is_generic = false,
+            .type_uuid = 0,
+        },
+        .char => types.TypeInfo{
+            .define = .{
+                .type_name = "char",
+                .base_name = "u8",
+                .size = 1,
+                .is_builtin = true,
+            },
+            .is_generic = false,
+            .type_uuid = 0,
+        },
+        .string => |s| types.TypeInfo{
+            .define = .{
+                .type_name = "string",
+                .base_name = "[]const u8",
+                .alias = "str",
+                .size = @truncate(s.value.len),
+                .is_builtin = true,
+            },
+            .is_generic = false,
+            .type_uuid = 0,
+        },
+        .list => |l| types.TypeInfo{
+            .define = .{
+                .type_name = "list",
+                .base_name = "[]const <strict Type = any>",
+                .size = l.size(),
+                .is_builtin = true,
+            },
+            .is_generic = true,
+            .type_uuid = 0,
+        },
+        .func => types.TypeInfo{
+            .define = .{
+                .type_name = "function",
+                .base_name = "[func(...) any]",
+                .alias = "func",
+                .is_builtin = true,
+                .size = 8,
+            },
+            .type_uuid = 172,
+            .is_generic = false,
+        },
+        .boolean => types.TypeInfo{
+            .define = .{
+                .type_name = "bool",
+                .base_name = "boolean",
+                .size = 1,
+                .is_builtin = true,
+            },
+            .is_generic = false,
+            .type_uuid = 0,
+        },
+        .runtime_error => types.TypeInfo{
+            .define = .{
+                .type_name = "error",
+                .base_name = "runtime_error(void)",
+                .size = 0,
+                .is_builtin = true,
+            },
+            .is_generic = false,
+            .type_uuid = 255,
+        },
+        else => return error.InvalidCast,
+    };
+}
+
+const InferType = enum { all, enums };
+fn typeInfer(v_n: Value, infer_type: InferType) !SymbolTable.SymbolValue {
+    const v = v_n.depointerizeToValue();
+    switch (infer_type) {
+        .all => {},
+        .enums => {
+            switch (v) {
+                .@"enum" => {},
+                else => return error.InvalidCast,
+            }
+        },
+    }
     return switch (v) {
         .integer => SymbolTable.SymbolValue{ .i64 = try safeIntCast(i64, v) },
         .float => |f| SymbolTable.SymbolValue{ .float = f },
@@ -130,6 +234,7 @@ fn typeInfer(v: Value) !SymbolTable.SymbolValue {
         .boolean => |b| SymbolTable.SymbolValue{ .bool = b },
         .func => |f| SymbolTable.SymbolValue{ .func = f },
         .list => |l| SymbolTable.SymbolValue{ .list = l },
+        .@"enum" => |e| SymbolTable.SymbolValue{ .@"enum" = e },
         .none => SymbolTable.SymbolValue{ .void = {} },
         else => return error.InvalidCast,
     };
@@ -157,7 +262,9 @@ pub fn castToSymbolValue(allocator: std.mem.Allocator, v_n: Value, ty: TypeVal) 
         .void => SymVal{ .void = {} },
         .list => SymVal{ .list = try safeListCast(allocator, v, false) },
         .imlist => SymVal{ .list = try safeListCast(allocator, v, true) }, // immutable list
-        .any => typeInfer(v),
+        .any => typeInfer(v, .all),
+        .anyenum => typeInfer(v, .enums),
+        .type => SymVal{ .type = try safeTypeCast(v) },
     };
 }
 
@@ -183,7 +290,9 @@ pub fn castToValueNoRef(v: SymbolTable.SymbolValue) Value {
         .char => |c| Value{ .char = c },
         .func => |f| Value{ .func = f },
         .void => Value{ .none = {} },
+        .type => |t| Value{ .type = t },
         .list => |l| Value{ .list = l },
+        .@"enum" => |e| Value{ .@"enum" = e },
     };
 }
 
@@ -204,7 +313,8 @@ pub fn getTypeValFromSymbolValue(v: SymbolTable.SymbolValue) !TypeVal {
         .char => TypeVal.char,
         .void => TypeVal.void,
         .list => TypeVal.list,
-        .func => return error.InvalidType, // func does not havea typeval
+        .type => TypeVal.type,
+        .func, .@"enum" => return error.InvalidType, // func does not havea typeval
     };
 }
 

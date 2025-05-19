@@ -2,10 +2,15 @@ const std = @import("std");
 const rt = @import("runtime.zig");
 const types = @import("types.zig");
 const Type = @import("Type.zig");
+const TypeInfo = types.TypeInfo;
 
 const Self = @This();
 
 pub const SymbolValue = union(enum) {
+    // structure types (aka struct, class, enum)
+    @"enum": types.Enum,
+
+    // value types
     u8: u8,
     u16: u16,
     u32: u32,
@@ -24,6 +29,7 @@ pub const SymbolValue = union(enum) {
     char: u8, // char is another name for u8 but treated like a character instead of a number
     func: types.Function,
     list: *types.List, // any thing that is mutable like a list will be a pointer to the type
+    type: TypeInfo,
 
     pub fn deinit(self: SymbolValue) void {
         switch (self) {
@@ -32,6 +38,9 @@ pub const SymbolValue = union(enum) {
             },
             .list => |l| {
                 l.deinit();
+            },
+            .@"enum" => |e| {
+                e.deinit();
             },
             else => {},
         }
@@ -58,6 +67,100 @@ pub const SymbolValue = union(enum) {
             .list => |l| try l.setGenericType(ty),
             else => return error.NotGeneric,
         }
+    }
+
+    // if you want a better equal with errors, cast to a RTValue
+    pub fn equal(self: SymbolValue, other: SymbolValue) bool {
+        const fields = @typeInfo(@TypeOf(self)).@"union".fields;
+        switch (self) {
+            .u8, .u16, .u32, .u64, .i8, .i16, .i32, .i64, .char => {
+                const lhs: i65 = inline for (fields) |field| {
+                    if (@typeInfo(field.type) == .int and std.mem.eql(u8, field.name, @tagName(self))) {
+                        break @intCast(@field(self, field.name));
+                    }
+                } else unreachable;
+                switch (other) {
+                    .u8, .u16, .u32, .u64, .i8, .i16, .i32, .i64, .char => {
+                        const rhs: i65 = inline for (fields) |field| {
+                            if (@typeInfo(field.type) == .int and std.mem.eql(u8, field.name, @tagName(other))) {
+                                break @intCast(@field(other, field.name));
+                            }
+                        } else unreachable;
+                        return lhs == rhs;
+                    },
+                    .float => |rhs| return @as(f64, @floatFromInt(lhs)) == rhs,
+                    .void => return lhs == 0,
+                    else => return false,
+                }
+            },
+            .float => |lhs| {
+                switch (other) {
+                    .u8, .u16, .u32, .u64, .i8, .i16, .i32, .i64, .char => {
+                        inline for (fields) |field| {
+                            if (@typeInfo(field.type) == .int and std.mem.eql(u8, field.name, @tagName(other))) {
+                                const rhs: f64 = @floatFromInt(@field(other, field.name));
+                                return lhs == rhs;
+                            }
+                        } else unreachable;
+                    },
+                    .float => |rhs| return lhs == rhs,
+                    .void => return lhs == 0.0,
+                    else => return false,
+                }
+            },
+            .bool => |lhs| {
+                switch (other) {
+                    .bool => |rhs| {
+                        return lhs == rhs;
+                    },
+                    .void => return lhs == false,
+                    .u8, .u16, .u32, .u64, .i8, .i16, .i32, .i64, .float, .char => {
+                        const rhs: bool = inline for (fields) |field| {
+                            if (@typeInfo(field.type) == .int and std.mem.eql(u8, field.name, @tagName(other))) {
+                                break @field(other, field.name) != 0;
+                            }
+                        } else unreachable;
+                        return lhs == rhs;
+                    },
+                    else => return false,
+                }
+            },
+            .void => return false,
+            .string => |lhs| {
+                switch (other) {
+                    .string => |rhs| {
+                        return lhs.equal(rhs);
+                    },
+                    else => return false,
+                }
+            },
+            .list => |lhs| {
+                switch (other) {
+                    .list => |rhs| {
+                        const result = lhs.equal(rhs);
+                        if (result != .boolean) return false;
+                        return result.boolean;
+                    },
+                    else => return false,
+                }
+            },
+            else => return false,
+        }
+    }
+
+    pub fn size(self: SymbolValue) u32 {
+        return switch (self) {
+            .u8, .i8, .char, .bool => 1,
+            .u16, .i16 => 2,
+            .u32, .i32 => 4,
+            .u64, .i64 => 8,
+            .float => 8,
+            .string => |s| @truncate(s.value.len),
+            .list => |l| l.size(),
+            .func => 8, // act as pointer
+            .void, .type => 0, // comptime or none size
+            .@"enum" => |e| e.tagged.size() orelse 8,
+        };
     }
 };
 pub const SymbolType = std.meta.Tag(SymbolValue);

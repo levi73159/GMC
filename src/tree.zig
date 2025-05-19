@@ -34,6 +34,7 @@ pub const Node = union(enum) {
     array: Array,
     index_access: IndexAccess,
     field_access: FieldAccess,
+    enum_decl: EnumDecl,
 
     pub fn getLeftPos(self: Node) ?DebugPos {
         return switch (self) {
@@ -61,6 +62,7 @@ pub const Node = union(enum) {
             .array => |a| a.start.pos,
             .index_access => |i| i.value.getLeftPos(),
             .field_access => |f| f.value.getLeftPos(),
+            .enum_decl => |e| e.identifier.pos,
         };
     }
 
@@ -90,6 +92,7 @@ pub const Node = union(enum) {
             .array => |a| a.end.pos,
             .index_access => |i| i.value.getRightPos(),
             .field_access => |f| f.field.pos,
+            .enum_decl => |e| e.end.pos,
         };
     }
 
@@ -334,5 +337,29 @@ pub const FieldAccess = struct {
 
     pub fn deinit(self: FieldAccess) void {
         self.value.deinit();
+    }
+};
+
+pub const EnumField = struct {
+    name: Token,
+    value: ?*const Node,
+    postition: u64, // use to caculate the value if one is not provided
+};
+
+pub const EnumDecl = struct {
+    identifier: Token,
+    fields: []const EnumField,
+    allocator: std.mem.Allocator,
+    is_deinit: *bool,
+    end: Token,
+
+    pub fn deinit(self: EnumDecl) void {
+        if (self.is_deinit.*) return; // keeps it from double free
+        for (self.fields) |field| {
+            if (field.value) |value| value.deinit();
+        }
+
+        self.allocator.free(self.fields);
+        self.is_deinit.* = true;
     }
 };

@@ -35,6 +35,7 @@ const ParseError = error{
     MissingEndOfString,
     NotAGeneric,
     ExpectedGenericType,
+    DuplicateEnumField,
 };
 
 pub fn init(tokens: []const Token, node_allocator: std.mem.Allocator, allocator: std.mem.Allocator) Self {
@@ -228,6 +229,9 @@ fn parseStatement(self: *Self) ParseError!*const tree.Node {
 
         const value = try self.parseExprWithSemicolon();
         return self.allocNode(tree.Node{ .returnstmt = .{ .start = st, .value = value } });
+    }
+    if (self.consume(.enum_kw)) |_| {
+        return self.parseEnum();
     }
     return self.parseExprWithSemicolon();
 }
@@ -817,6 +821,50 @@ fn parseArray(self: *Self) ParseError!*const tree.Node {
         .array = .{
             .start = start,
             .items = try elements.toOwnedSlice(),
+            .end = end,
+        },
+    });
+}
+
+fn parseEnum(self: *Self) ParseError!*const tree.Node {
+    const identifier = self.consume(.identifier) orelse return self.badToken(error.ExpectedIdentifier);
+
+    _ = self.consume(.left_curly_bracket) orelse return self.badToken(error.MissingCurlyBracket);
+    var fields = std.ArrayList(tree.EnumField).init(self.allocator);
+    errdefer fields.deinit();
+
+    var i: usize = 0;
+    while (!self.match(.right_curly_bracket)) : (i += 1) {
+        const name = self.consume(.identifier) orelse return error.ExpectedIdentifier;
+
+        var value: ?*const tree.Node = null;
+        if (self.consume(.equal)) |_| {
+            value = try self.parseExpression();
+        }
+
+        for (fields.items) |field| {
+            if (std.mem.eql(u8, field.name.lexeme, name.lexeme)) return error.DuplicateEnumField;
+        }
+
+        try fields.append(.{
+            .name = name,
+            .value = value,
+            .postition = i,
+        });
+
+        if (self.consume(.comma)) |_| {} else break; // make comma optional on the last field but required on all others
+    }
+
+    const end = self.consume(.right_curly_bracket) orelse return self.badToken(error.MissingCurlyBracket);
+
+    const is_deinit = self.node_allocator.create(bool) catch return error.OutOfMemory;
+    is_deinit.* = false;
+    return self.allocNode(tree.Node{
+        .enum_decl = .{
+            .identifier = identifier,
+            .fields = try fields.toOwnedSlice(),
+            .allocator = self.allocator,
+            .is_deinit = is_deinit,
             .end = end,
         },
     });

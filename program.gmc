@@ -1,24 +1,23 @@
-func split(str value, char delimiter) imlist<str> {
-    const list<str> result = [];
-    var result_buf = "";
-    
-    for (var u64 i = 0; i < len(value); i++;) {
-        const c = value[i];
-        if (c == delimiter) {
-            result.append(result_buf);
-            result_buf = "";
-        } else {
-            result_buf += c;
-        }
-    }
-
-    if (len(result_buf) > 0) {
-        result.append(result_buf);
-    }
-
-    return result;
+enum IsGay {
+    no,
+    yes
 }
 
-const result = split("Hello world! how are you?", ' ');
+enum Another {
+    x, y, z
+}
 
-println(result);
+const anyenum you = IsGay.yes;
+const anyenum me = IsGay.no;
+
+const anyenum another = Another.x;
+
+print(you == me); # false
+print(you == IsGay.yes); # true
+print(me == IsGay.no); # true
+
+print(another == Another.x); # true
+print(another == Another.y); # false
+print(another == Another.z); # false
+
+print(another == you); # false

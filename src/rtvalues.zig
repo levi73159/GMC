@@ -49,6 +49,9 @@ pub const Value = union(enum) {
     func: types.Function,
     list: *types.List,
 
+    type: types.TypeInfo,
+    @"enum": types.Enum,
+
     ptr: *Value, // all pointers are nonconst
     symbol: SymbolPtr,
     none,
@@ -86,6 +89,8 @@ pub const Value = union(enum) {
             .boolean, .runtime_error => self,
             .ptr => |p| p.convertToBool(),
             .symbol => |s| castToValueNoRef(s.ptr.value).convertToBool(),
+            .type => Value{ .boolean = true },
+            .@"enum" => Value{ .boolean = true },
         };
     }
 
@@ -720,12 +725,11 @@ pub const Value = union(enum) {
     }
 
     pub fn format(
-        self: @This(),
+        self: Value,
         comptime _: []const u8,
         _: std.fmt.FormatOptions,
         writer: std.io.AnyWriter,
     ) !void {
-        // std.debug.print("Value: {s}\n", .{@tagName(self)});
         switch (self) {
             .integer => |i| try writer.print("{}", .{i}),
             .float => |f| try writer.print("{d}", .{f}),
@@ -758,6 +762,8 @@ pub const Value = union(enum) {
                 try writer.writeByte(']');
             },
             .ptr, .symbol => try writer.print("{}", .{self.depointerizeToValue()}),
+            .@"enum" => |e| try writer.print("[Type enum: {s}]", .{e.enum_name}),
+            .type => |t| try writer.print("[Type any({d}): {s}({d}]", .{ t.type_uuid, t.define.type_name, t.define.size }),
         }
     }
 };

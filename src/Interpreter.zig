@@ -106,6 +106,7 @@ pub fn evalNode(self: Self, node: *const Node) rt.Result {
         .array => self.evalArray(node),
         .index_access => self.evalIndex(node),
         .field_access => self.evalFieldAccess(node),
+        .enum_decl => self.evalEnumDecl(node),
     };
 }
 
@@ -647,4 +648,53 @@ fn evalFieldAccess(self: Self, og_node: *const Node) rt.Result {
     const value_at_field = value.field(field.lexeme);
     if (checkRuntimeError(value_at_field, og_node)) |err| return err;
     return rt.Result.val(value_at_field);
+}
+
+fn evalEnumDecl(self: Self, og_node: *const Node) rt.Result {
+    const node = og_node.enum_decl;
+    defer if (!self.static) node.deinit();
+
+    var fields = std.ArrayList(ty.Enum.Field).init(self.allocator);
+    defer fields.deinit();
+
+    var last_value: rt.Value = .{ .integer = 0 };
+    for (node.fields, 0..) |field, i| {
+        if (field.value) |val_node| {
+            const result = self.evalNode(val_node);
+            if (checkRuntimeErrorOrSignal(result, og_node)) |err| return err;
+            last_value = result.value;
+        } else {
+            last_value = rt.Value.add(self.allocator, last_value, .{ .integer = 1 });
+            if (checkRuntimeError(last_value, og_node)) |err| return err;
+        }
+        // right now it hard coded to i32
+        const field_value = rt.castToSymbolValue(self.allocator, last_value, .i32) catch {
+            return rt.Result.err("Invalid enum value", "The value can't be converted to tagged type", field.name.pos);
+        };
+
+        // make sure the field is unique
+        for (fields.items) |f| {
+            if (std.mem.eql(u8, f.name, field.name.lexeme)) {
+                return rt.Result.err("Duplicate field", "The field is already defined", field.name.pos);
+            }
+
+            if (f.value.equal(field_value)) {
+                return rt.Result.err("Duplicate value", "The value is already defined", field.name.pos);
+            }
+        }
+
+        fields.append(.{
+            .name = field.name.lexeme,
+            .value = field_value,
+            .backing_value = @intCast(i),
+        }) catch return rt.Result.err("Out of memory", "The interpreter ran out of memory", og_node.getPos());
+    }
+
+    const enum_decl = ty.Enum.init(self.allocator, node.identifier.lexeme, fields.toOwnedSlice() catch unreachable, Type.init(.i32, null));
+    self.symbols.add(node.identifier.lexeme, .{
+        .is_const = true, // declared enums are always const
+        .value = .{ .@"enum" = enum_decl },
+    }) catch unreachable;
+
+    return rt.Result.none();
 }

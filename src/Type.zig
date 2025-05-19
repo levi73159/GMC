@@ -29,6 +29,32 @@ pub fn checkGenericError(self: Self) error{ ExpectedGenericType, NotAGeneric }!v
     }
 }
 
+pub fn isBasicType(self: Self) bool {
+    if (self.generic_type != null) return false;
+
+    return switch (self.value) {
+        .i8, .i16, .i32, .i64, .u8, .u16, .u32, .u64, .int, .bool, .char, .str => true,
+        else => false,
+    };
+}
+
+pub fn size(self: Self) ?u32 {
+    return switch (self.value) {
+        .i8, .u8 => 1,
+        .i16, .u16 => 2,
+        .i32, .u32 => 4,
+        .i64, .u64 => 8,
+        .int => 4,
+        .float => 8, // float (f64)
+        .bool => 1,
+        .char => 1,
+        .str => 8, // strings are pointers (8 bytes)
+        .list, .imlist => 8, // list is a pointer (8 bytes)
+        .any, .anyenum => null,
+        .void, .type => 0, // type is a type that doesn't have a size cause it comptime known
+    };
+}
+
 pub fn equal(self: Self, other: Self) bool {
     if (self.value != other.value) return false;
     if (self.generic_type == null and other.generic_type == null) return true; // value == value and generics == generics

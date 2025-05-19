@@ -263,3 +263,12 @@ pub fn field(self: *Self, name: []const u8) Value {
         return Value.errPrint(self.allocator, "AttributeError", "'List' object has no attribute '{s}'", .{name}, null);
     }
 }
+
+pub fn size(self: *const Self) u32 {
+    var s: u32 = 0;
+    for (self.items) |item| {
+        s += item.value.size();
+    }
+
+    return s;
+}

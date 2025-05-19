@@ -55,7 +55,6 @@ pub const Kind = enum {
     // keywords
     var_kw,
     const_kw,
-    func_kw,
     true_kw,
     false_kw,
     if_kw,
@@ -65,6 +64,9 @@ pub const Kind = enum {
     break_kw,
     continue_kw,
     return_kw,
+
+    func_kw,
+    enum_kw,
 
     pub fn getKeyword(lexeme: []const u8) ?Kind {
         var buf: [2555]u8 = undefined;
@@ -76,6 +78,8 @@ pub const Kind = enum {
 pub const TypeValue = enum {
     // special types
     any,
+    anyenum, // any enum (aka any enum can be stored here)
+    type,
 
     // basic types
     i8,
