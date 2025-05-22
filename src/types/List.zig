@@ -118,8 +118,7 @@ pub const clear = clearAndFree;
 
 pub fn append(self: *Self, value: Value) !void {
     if (self.immutable) return error.ImmutableList;
-    const symbol_value = try rt.castToSymbolValue(self.allocator, value, self.item_type.value);
-    if (self.item_type.generic_type) |gen_type| try symbol_value.setGenericType(gen_type.*);
+    const symbol_value = try rt.castToType(self.allocator, value, self.item_type);
     return self.appendSymbol(symbol_value);
 }
 

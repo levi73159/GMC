@@ -11,6 +11,7 @@ index: usize = 0,
 prev: ?Token = null,
 node_allocator: std.mem.Allocator, // quicky because use for nodes
 allocator: std.mem.Allocator, // use for invidual heap needed values
+types: std.ArrayList([]const u8),
 
 const ParseError = error{
     UnexpectedToken,
@@ -36,10 +37,18 @@ const ParseError = error{
     NotAGeneric,
     ExpectedGenericType,
     DuplicateEnumField,
+    DuplicateType,
+    UnknownType,
 };
 
 pub fn init(tokens: []const Token, node_allocator: std.mem.Allocator, allocator: std.mem.Allocator) Self {
-    return Self{ .tokens = tokens, .index = 0, .node_allocator = node_allocator, .allocator = allocator };
+    return Self{
+        .tokens = tokens,
+        .index = 0,
+        .node_allocator = node_allocator,
+        .allocator = allocator,
+        .types = std.ArrayList([]const u8).init(node_allocator), // a cache for types to make sure the string is a type
+    };
 }
 
 pub fn deinit(self: Self, nodes: []const *const tree.Node) void {
@@ -47,6 +56,14 @@ pub fn deinit(self: Self, nodes: []const *const tree.Node) void {
         node.deinit();
         self.node_allocator.destroy(node);
     }
+    self.types.deinit();
+}
+
+fn checkTypeExists(self: Self, name: []const u8) bool {
+    for (self.types.items) |t| {
+        if (std.mem.eql(u8, t, name)) return true;
+    }
+    return false;
 }
 
 fn current(self: Self) ?Token {
@@ -262,11 +279,24 @@ fn parseExpression(self: *Self) ParseError!*const tree.Node {
     return self.parseAssign();
 }
 
-fn parseType(self: *Self) ParseError!Type {
-    const tyval = self.consume(.type) orelse return self.badToken(error.ExpectedType);
+fn parseType(self: *Self, allow_infer: bool) ParseError!Type {
+    const tyval = self.consume(.type) orelse self.consume(.identifier) orelse return self.badToken(error.ExpectedType);
+    switch (tyval.kind) {
+        .identifier => {
+            if (!self.checkTypeExists(tyval.lexeme)) {
+                if (allow_infer) {
+                    self.index -= 1; // undo the consume
+                    return Type.any();
+                } else {
+                    return error.UnknownType;
+                }
+            }
+        },
+        else => {},
+    }
 
     const generic_type: ?*const Type = if (self.consume(.lt)) |_| blk: {
-        const _type = try self.parseType();
+        const _type = try self.parseType(false);
         _ = self.consume(.gt) orelse return self.badToken(error.MissingAngleBracket);
 
         const ptr = try self.node_allocator.create(Type);
@@ -274,18 +304,17 @@ fn parseType(self: *Self) ParseError!Type {
         break :blk ptr;
     } else null;
 
-    var ty = Type{ .value = tyval.value.type, .generic_type = generic_type };
-    ty.pos = tyval.pos;
-
-    try ty.checkGenericError(); // returns generic error if the type is not generic or needs a generic type
-
-    return ty;
+    return switch (tyval.kind) {
+        .type => Type{ .value = .{ .builtin = tyval.value.type }, .generic_type = generic_type },
+        .identifier => Type{ .value = Type.getType(tyval.lexeme).?, .generic_type = generic_type },
+        else => unreachable,
+    };
 }
 
 fn parseVariableDecl(self: *Self) ParseError!*const tree.Node {
     const tok = self.advance().?; // should never be null
     const is_const = tok.kind == .const_kw;
-    const t = if (self.match(.type)) try self.parseType() else Type.any();
+    const t = try self.parseType(true);
 
     const identifier = self.consume(.identifier) orelse return self.badToken(error.ExpectedIdentifier);
     const value: ?*const tree.Node = if (self.consume(.equal)) |_| try self.parseExpression() else null;
@@ -761,7 +790,7 @@ fn parseFunction(self: *Self) ParseError!*const tree.Node {
     _ = self.consume(.left_paren) orelse return self.badToken(error.MissingParen);
 
     if (self.consume(.right_paren)) |_| {
-        const ret_type = try self.parseType();
+        const ret_type = try self.parseType(false);
         const body = try self.parseBlock();
         return self.allocNode(tree.Node{
             .function_decl = .{
@@ -778,7 +807,7 @@ fn parseFunction(self: *Self) ParseError!*const tree.Node {
     errdefer params.deinit();
 
     while (true) {
-        const t = try self.parseType();
+        const t = try self.parseType(false);
         const name = self.consume(.identifier) orelse return self.badToken(error.ExpectedIdentifier);
 
         try params.append(.{
@@ -790,7 +819,7 @@ fn parseFunction(self: *Self) ParseError!*const tree.Node {
     }
     _ = self.consume(.right_paren) orelse return self.badToken(error.MissingParen);
 
-    const ret_type = try self.parseType();
+    const ret_type = try self.parseType(false);
     const body = try self.parseBlock();
 
     return self.allocNode(tree.Node{
@@ -828,6 +857,9 @@ fn parseArray(self: *Self) ParseError!*const tree.Node {
 
 fn parseEnum(self: *Self) ParseError!*const tree.Node {
     const identifier = self.consume(.identifier) orelse return self.badToken(error.ExpectedIdentifier);
+    for (self.types.items) |t| {
+        if (std.mem.eql(u8, t, identifier.lexeme)) return error.DuplicateType;
+    }
 
     _ = self.consume(.left_curly_bracket) orelse return self.badToken(error.MissingCurlyBracket);
     var fields = std.ArrayList(tree.EnumField).init(self.allocator);
@@ -859,6 +891,9 @@ fn parseEnum(self: *Self) ParseError!*const tree.Node {
 
     const is_deinit = self.node_allocator.create(bool) catch return error.OutOfMemory;
     is_deinit.* = false;
+
+    try self.types.append(identifier.lexeme);
+    _ = Type.register(self.allocator, identifier.lexeme);
     return self.allocNode(tree.Node{
         .enum_decl = .{
             .identifier = identifier,

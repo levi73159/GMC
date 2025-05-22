@@ -1,24 +1,15 @@
 enum IsGay {
-    no,
+    no = 3,
     yes
 }
 
 enum Another {
-    x, y, z
+    x, y, z, three
 }
 
-const anyenum you = IsGay.yes;
-const anyenum me = IsGay.no;
+const u32 a = IsGay.no;
+const u32 b = Another.three;
 
-var anyenum another = Another.x;
-another = IsGay.yes;
-
-println(you == me); # false
-println(you == IsGay.yes); # true
-println(me == IsGay.no); # true
-
-println(another == Another.x); # true
-println(another == Another.y); # false
-println(another == Another.z); # false
-
-println(another == you); # false
+println(a == b);
+println(a);
+println(b);

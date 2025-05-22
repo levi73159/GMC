@@ -42,6 +42,10 @@ pub fn safeIntCast(comptime TO: type, v_n: Value) !TO {
             if (c < min) return error.InvalidCast;
             return @intCast(c);
         },
+        .enum_instance => |e| {
+            const value = castToValueNoRef(e.field.value);
+            return safeIntCast(TO, value);
+        },
         .none => return 0, // cast none types to 0
         else => return error.InvalidCast,
     }
@@ -71,6 +75,10 @@ pub fn safeFloatCast(comptime TO: type, v_n: Value) !TO {
             if (float < min) return error.InvalidCast;
             return @floatCast(float);
         },
+        .enum_instance => |e| {
+            const value = castToValueNoRef(e.field.value);
+            return safeFloatCast(TO, value);
+        },
         .none => return 0.0, // cast none types to 0
         else => return error.InvalidCast,
     }
@@ -95,6 +103,10 @@ pub fn safeStrCast(allocator: std.mem.Allocator, v_n: Value) !types.String {
             break :blk types.String{ .allocator = allocator, .value = &[_]u8{char}, .mem_type = .stack };
         },
         .func => |f| types.String{ .allocator = allocator, .value = f.getName(), .mem_type = .stack }, // cast function to string == func name????
+        .enum_instance => |e| {
+            const value = castToValueNoRef(e.field.value);
+            return safeStrCast(allocator, value);
+        },
         else => return error.InvalidCast,
     };
 }
@@ -115,6 +127,10 @@ pub fn safeListCast(allocator: std.mem.Allocator, v_n: Value, immutable: bool) a
         .list => |l| {
             if (l.immutable == immutable) return l.ref();
             return l.recursiveMutablity(immutable).ref();
+        },
+        .enum_instance => |e| {
+            const value = castToValueNoRef(e.field.value);
+            return safeListCast(allocator, value, immutable);
         },
         .none => types.List.init(allocator, immutable),
         else => return error.InvalidCast,
@@ -137,6 +153,7 @@ pub fn safeTypeCast(v_n: Value) !types.TypeInfo {
             },
             .is_generic = false,
             .type_uuid = 0,
+            .global_uuid = 0,
         },
         .float => types.TypeInfo{
             .define = .{
@@ -147,6 +164,7 @@ pub fn safeTypeCast(v_n: Value) !types.TypeInfo {
             },
             .is_generic = false,
             .type_uuid = 0,
+            .global_uuid = 1,
         },
         .char => types.TypeInfo{
             .define = .{
@@ -157,6 +175,7 @@ pub fn safeTypeCast(v_n: Value) !types.TypeInfo {
             },
             .is_generic = false,
             .type_uuid = 0,
+            .global_uuid = 2,
         },
         .string => |s| types.TypeInfo{
             .define = .{
@@ -168,6 +187,7 @@ pub fn safeTypeCast(v_n: Value) !types.TypeInfo {
             },
             .is_generic = false,
             .type_uuid = 0,
+            .global_uuid = 3,
         },
         .list => |l| types.TypeInfo{
             .define = .{
@@ -178,6 +198,7 @@ pub fn safeTypeCast(v_n: Value) !types.TypeInfo {
             },
             .is_generic = true,
             .type_uuid = 0,
+            .global_uuid = 4,
         },
         .func => types.TypeInfo{
             .define = .{
@@ -189,6 +210,7 @@ pub fn safeTypeCast(v_n: Value) !types.TypeInfo {
             },
             .type_uuid = 172,
             .is_generic = false,
+            .global_uuid = 5,
         },
         .boolean => types.TypeInfo{
             .define = .{
@@ -199,6 +221,7 @@ pub fn safeTypeCast(v_n: Value) !types.TypeInfo {
             },
             .is_generic = false,
             .type_uuid = 0,
+            .global_uuid = 6,
         },
         .runtime_error => types.TypeInfo{
             .define = .{
@@ -209,14 +232,33 @@ pub fn safeTypeCast(v_n: Value) !types.TypeInfo {
             },
             .is_generic = false,
             .type_uuid = 255,
+            .global_uuid = 7,
         },
+        .enum_instance => |e| Type.getTypeInfo(e.global_uuid) orelse unreachable,
         else => return error.InvalidCast,
+    };
+}
+
+pub fn safeEnumCast(enum_type: types.Enum, v_n: Value) !SymbolTable.SymbolValue {
+    const v = v_n.depointerizeToValue();
+    defer v.deinit();
+
+    return switch (v) {
+        .enum_instance => |e| blk: {
+            if (e.type_uuid == enum_type.uuid) return SymbolTable.SymbolValue{ .enum_instance = e };
+            break :blk try enum_type.castToEnum(v);
+        },
+        else => try enum_type.castToEnum(v),
     };
 }
 
 const InferType = enum { all, enums };
 fn typeInfer(v_n: Value, infer_type: InferType) !SymbolTable.SymbolValue {
-    const v = v_n.depointerizeToValue();
+    var v = v_n.depointerizeToValue();
+    switch (v) {
+        .enum_instance => v.enum_instance.strict = false,
+        else => {},
+    }
     switch (infer_type) {
         .all => {},
         .enums => {
@@ -241,9 +283,27 @@ fn typeInfer(v_n: Value, infer_type: InferType) !SymbolTable.SymbolValue {
     };
 }
 
-pub fn castToSymbolValue(allocator: std.mem.Allocator, v_n: Value, ty: TypeVal) !SymbolTable.SymbolValue {
-    const v = v_n.depointerizeToValue();
+pub fn castToSymbolValue(allocator: std.mem.Allocator, v_n: Value, ty: Type.TypeValue) !SymbolTable.SymbolValue {
+    var v = v_n.depointerizeToValue();
+    switch (v) {
+        .enum_instance => v.enum_instance.strict = true,
+        else => {},
+    }
 
+    return switch (ty) {
+        .builtin => |bty| castToBuiltinSymVal(allocator, v, bty),
+        .defined => |dty| castToDefinedType(allocator, v, dty.*),
+    };
+}
+
+pub fn castToDefinedType(_: std.mem.Allocator, v: Value, ty: Type.DefineType) !SymbolTable.SymbolValue {
+    return switch (ty.ty.value) {
+        .@"enum" => |e| try safeEnumCast(e, v),
+        else => return error.IsNotDefinedType,
+    };
+}
+
+fn castToBuiltinSymVal(allocator: std.mem.Allocator, v: Value, ty: TypeVal) !SymbolTable.SymbolValue {
     const SymVal = SymbolTable.SymbolValue;
     return switch (ty) {
         .i8 => SymVal{ .i8 = try safeIntCast(i8, v) },

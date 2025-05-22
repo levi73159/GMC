@@ -288,7 +288,7 @@ fn evalVarAssign(self: Self, og_node: *const Node) rt.Result {
             const typeval = rt.getTypeValFromSymbolValue(old_symbol.value) catch {
                 return rt.Result.err("Invalid Cast", "Can't convert the value into the type", og_node.getPos());
             };
-            const symval = rt.castToSymbolValue(self.allocator, value, typeval) catch {
+            const symval = rt.castToSymbolValue(self.allocator, value, .{ .builtin = typeval }) catch {
                 return rt.Result.err("Invalid Cast", "The value can't be converted to the type (could be due to the value is too big or small)", node.value.getPos());
             };
 
@@ -535,7 +535,7 @@ fn handleFunctionResult(self: Self, func: ty.Function, result: rt.Result, og_nod
     };
     switch (func) {
         .base => |basef| {
-            if (basef.return_type.value != .void) {
+            if (basef.return_type.value.eqlBuiltin(.void)) {
                 const msg = std.fmt.allocPrint(self.allocator, "Function return an expected type, Expected {s} got void", .{@tagName(func.base.return_type.value)}) catch unreachable;
                 return rt.Result.errHeap(self.allocator, "Invalid return type", msg, func.base.return_type_pos);
             }
@@ -657,7 +657,7 @@ fn evalEnumDecl(self: Self, og_node: *const Node) rt.Result {
     var fields = std.ArrayList(ty.Enum.Field).init(self.allocator);
     defer fields.deinit();
 
-    var last_value: rt.Value = .{ .integer = 0 };
+    var last_value: rt.Value = .{ .integer = -1 };
     for (node.fields, 0..) |field, i| {
         if (field.value) |val_node| {
             const result = self.evalNode(val_node);
@@ -668,7 +668,7 @@ fn evalEnumDecl(self: Self, og_node: *const Node) rt.Result {
             if (checkRuntimeError(last_value, og_node)) |err| return err;
         }
         // right now it hard coded to i32
-        const field_value = rt.castToSymbolValue(self.allocator, last_value, .i32) catch {
+        const field_value = rt.castToSymbolValue(self.allocator, last_value, .{ .builtin = .i32 }) catch {
             return rt.Result.err("Invalid enum value", "The value can't be converted to tagged type", field.name.pos);
         };
 
@@ -679,7 +679,7 @@ fn evalEnumDecl(self: Self, og_node: *const Node) rt.Result {
             }
 
             if (f.value.equal(field_value)) {
-                return rt.Result.err("Duplicate value", "The value is already defined", field.name.pos);
+                return rt.Result.errPrint(self.allocator, "Duplicate value", "The value({}) is already defined", .{f.value}, field.name.pos);
             }
         }
 
@@ -691,10 +691,13 @@ fn evalEnumDecl(self: Self, og_node: *const Node) rt.Result {
     }
 
     const enum_decl = ty.Enum.init(self.allocator, node.identifier.lexeme, fields.toOwnedSlice() catch unreachable, Type.init(.i32, null));
-    self.symbols.add(node.identifier.lexeme, .{
+    const ptr = self.symbols.addGetPtr(node.identifier.lexeme, .{
         .is_const = true, // declared enums are always const
         .value = .{ .@"enum" = enum_decl },
     }) catch unreachable;
+
+    const global_uuid = Type.setType(self.allocator, node.identifier.lexeme, ptr);
+    ptr.value.@"enum".global_uuid = global_uuid;
 
     return rt.Result.none();
 }

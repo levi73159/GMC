@@ -10,4 +10,5 @@ const TypeDefineData = struct {
 
 define: TypeDefineData, // the type definition data, aka the type name and size
 is_generic: bool,
-type_uuid: u64, // builtin types have a uuid of zero
+type_uuid: u64, // builtin types have a uuid of zero (specific to the type)
+global_uuid: u64, // every type has a global uuid for every time

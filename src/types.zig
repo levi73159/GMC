@@ -114,7 +114,7 @@ pub const BaseFunction = struct {
             else => return sigOrErr,
         };
 
-        if (self.return_type.value != .void) {
+        if (self.return_type.equal(Type.init(.void, null))) {
             const msg = std.fmt.allocPrint(base.allocator, "Function return an expected type, Expected {s} got void", .{@tagName(self.return_type.value)}) catch unreachable;
             return Result.errHeap(base.allocator, "Invalid return type", msg, self.return_type_pos);
         }

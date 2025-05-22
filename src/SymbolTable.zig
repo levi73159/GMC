@@ -167,30 +167,11 @@ pub const SymbolValue = union(enum) {
 
     pub fn format(
         self: SymbolValue,
-        comptime _: []const u8,
-        _: std.fmt.FormatOptions,
+        comptime fmt: []const u8,
+        opts: std.fmt.FormatOptions,
         writer: std.io.AnyWriter,
     ) !void {
-        switch (self) {
-            .u8, .u16, .u32, .u64, .i8, .i16, .i32, .i64, .float => try writer.print("{d}", .{self}),
-            .char => try writer.print("{c}", .{self}),
-            .bool => try writer.print("{}", .{self}),
-            .string => |s| try writer.print("{s}", .{s.value}),
-            .list => |l| {
-                try writer.writeByte('[');
-                for (l.items, 0..) |item, i| {
-                    if (i != 0) try writer.writeByte(' ');
-                    try writer.print("{}", .{item.value});
-                    if (i != l.items.len - 1) try writer.writeByte(',');
-                }
-                try writer.writeByte(']');
-            },
-            .func => |f| try writer.print("[func {s}]", .{f.getName()}),
-            .void => try writer.writeAll("void"),
-            .enum_instance => |e| try writer.print("{}", .{e.field.value}),
-            .type => |t| try writer.print("[Type any({d}): {s}({d})]", .{ t.type_uuid, t.define.type_name, t.define.size }),
-            .@"enum" => |e| try writer.print("[Type enum: {s}]", .{e.enum_name}),
-        }
+        return rt.castToValueNoRef(self).format(fmt, opts, writer);
     }
 };
 pub const SymbolType = std.meta.Tag(SymbolValue);
@@ -236,14 +217,30 @@ pub fn add(self: *Self, name: []const u8, symbol: Symbol) !void {
     try self.table.putNoClobber(try self.allocator.dupe(u8, name), symbol);
 }
 
+pub fn addGetPtr(self: *Self, name: []const u8, symbol: Symbol) !*Symbol {
+    const result = try self.table.getOrPut(try self.allocator.dupe(u8, name));
+    if (result.found_existing) return error.SymbolAlreadyExists;
+
+    result.value_ptr.* = symbol;
+    return result.value_ptr;
+}
+
 pub fn set(self: *Self, name: []const u8, value: SymbolValue) !void {
     const symbol = self.getPtr(name) orelse return error.SymbolDoesNotExist;
     if (symbol.is_const) return error.SymbolIsImmutable;
     // check if the type is the same as value
     const ty = std.meta.activeTag(symbol.value);
     const val = std.meta.activeTag(value);
+
+    // type mismatch check
     if (ty != val) return error.InvalidTypes;
-    // symbol.value.deinit(); // deinit the old value
+    switch (symbol.value) {
+        .enum_instance => |e| {
+            if (e.strict == true and e.type_uuid != value.enum_instance.type_uuid) return error.InvalidTypes;
+        },
+        else => {},
+    }
+
     symbol.value = value; // init the new value with the clone
 }
 

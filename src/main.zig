@@ -165,6 +165,8 @@ fn runFile(dbg: std.mem.Allocator, file: std.fs.File) !void {
 }
 
 fn run(text: []const u8, allocator: std.mem.Allocator, dbg_allocator: std.mem.Allocator, symbols: *SymbolTable, force_heap: bool) void {
+    defer @import("Type.zig").deinit(); // reset type cache
+
     var lexer = Lexer.init(allocator, text);
     defer lexer.deinit();
     const tokens = lexer.makeTokens(allocator) catch |err| switch (err) {
