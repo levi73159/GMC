@@ -861,6 +861,12 @@ fn parseEnum(self: *Self) ParseError!*const tree.Node {
         if (std.mem.eql(u8, t, identifier.lexeme)) return error.DuplicateType;
     }
 
+    const tag_type: Type = if (self.consume(.left_bracket)) |_| blk: {
+        const tag_type = self.parseType(false) catch return self.badToken(error.ExpectedType);
+        _ = self.consume(.right_bracket) orelse return self.badToken(error.MissingBracket);
+        break :blk tag_type;
+    } else Type.init(.i32, null); // default to i32
+
     _ = self.consume(.left_curly_bracket) orelse return self.badToken(error.MissingCurlyBracket);
     var fields = std.ArrayList(tree.EnumField).init(self.allocator);
     errdefer fields.deinit();
@@ -897,6 +903,7 @@ fn parseEnum(self: *Self) ParseError!*const tree.Node {
     return self.allocNode(tree.Node{
         .enum_decl = .{
             .identifier = identifier,
+            .tag_type = tag_type,
             .fields = try fields.toOwnedSlice(),
             .allocator = self.allocator,
             .is_deinit = is_deinit,

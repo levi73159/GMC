@@ -1,15 +1,19 @@
-enum IsGay {
-    no = 3,
-    yes
+enum Bit[u8] {
+    none,
+    first = 1,
+    second = 2,
+    third = 4,
+    fourth = 8,
+    fifth = 16,
+    sixth = 32,
+    seventh = 64,
+    eighth = 128,
 }
 
-enum Another {
-    x, y, z, three
+enum Other {
+    x, y, z
 }
 
-const u32 a = IsGay.no;
-const u32 b = Another.three;
+var x = Bit.first;
+x = Other.x;
 
-println(a == b);
-println(a);
-println(b);

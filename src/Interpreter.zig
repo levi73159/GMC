@@ -668,7 +668,7 @@ fn evalEnumDecl(self: Self, og_node: *const Node) rt.Result {
             if (checkRuntimeError(last_value, og_node)) |err| return err;
         }
         // right now it hard coded to i32
-        const field_value = rt.castToSymbolValue(self.allocator, last_value, .{ .builtin = .i32 }) catch {
+        const field_value = rt.castToType(self.allocator, last_value, node.tag_type) catch {
             return rt.Result.err("Invalid enum value", "The value can't be converted to tagged type", field.name.pos);
         };
 
@@ -690,7 +690,7 @@ fn evalEnumDecl(self: Self, og_node: *const Node) rt.Result {
         }) catch return rt.Result.err("Out of memory", "The interpreter ran out of memory", og_node.getPos());
     }
 
-    const enum_decl = ty.Enum.init(self.allocator, node.identifier.lexeme, fields.toOwnedSlice() catch unreachable, Type.init(.i32, null));
+    const enum_decl = ty.Enum.init(self.allocator, node.identifier.lexeme, fields.toOwnedSlice() catch unreachable, node.tag_type);
     const ptr = self.symbols.addGetPtr(node.identifier.lexeme, .{
         .is_const = true, // declared enums are always const
         .value = .{ .@"enum" = enum_decl },

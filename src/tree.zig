@@ -348,6 +348,7 @@ pub const EnumField = struct {
 
 pub const EnumDecl = struct {
     identifier: Token,
+    tag_type: Type,
     fields: []const EnumField,
     allocator: std.mem.Allocator,
     is_deinit: *bool,
