@@ -13,6 +13,7 @@ const none = tools.none;
 const val = tools.val;
 
 pub usingnamespace @import("casts.zig");
+pub usingnamespace @import("typefuncs.zig");
 
 pub fn print(args: []const rt.Value, base: Interpreter) rt.Result {
     defer end(args);
@@ -93,15 +94,11 @@ pub fn len(args: []const rt.Value, _: Interpreter) rt.Result {
     return result;
 }
 
-pub fn input(args: []const rt.Value, base: Interpreter) rt.Result {
+pub fn readLine(args: []const rt.Value, base: Interpreter) rt.Result {
     defer end(args);
     if (base.static) return val(.{ .string = ty.String.init(base.allocator, "", false) catch unreachable }); // not a static function
 
-    const stdout = std.io.getStdOut().writer();
     const stdin = std.io.getStdIn().reader();
-
-    const prompt: []const u8 = if (args.len == 0) "" else args[0].string.value;
-    stdout.print("{s}", .{prompt}) catch return err("IO Error", "Failed to write to stdout");
 
     const in = stdin.readUntilDelimiterOrEofAlloc(base.allocator, '\n', 1024) catch |e| return errHeap(base.allocator, "IO Error", "Failed to read from stdin: {s}", .{@errorName(e)});
     if (in) |str| {

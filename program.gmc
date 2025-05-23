@@ -1,19 +1,32 @@
-enum Bit[u8] {
-    none,
-    first = 1,
-    second = 2,
-    third = 4,
-    fourth = 8,
-    fifth = 16,
-    sixth = 32,
-    seventh = 64,
-    eighth = 128,
+println("Welcome to GMC!");
+
+print("Please enter your name: ");
+const name = readLine();
+
+println("Hello, " + name + "!");
+
+enum FavouriteColor[int] {
+    red = 1,
+    green,
+    blue,
+    yellow,
+    black,
+    white,
 }
 
-enum Other {
-    x, y, z
-}
+println("Favorite Color options: ");
+println("Red", FavouriteColor.red);
+println("Green", FavouriteColor.green);
+println("Blue", FavouriteColor.blue);
+println("Yellow", FavouriteColor.yellow);
+println("Black", FavouriteColor.black);
+println("White", FavouriteColor.white);
 
-var x = Bit.first;
-x = Other.x;
+print("Please enter your favourite color: ");
+const color = readLine();
 
+const int colorInt = toInt(color);
+
+const FavouriteColor favColor = colorInt;
+
+println("Your favorite color is: " + getName(favColor));

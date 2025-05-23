@@ -88,6 +88,12 @@ pub fn getType(name: []const u8) ?TypeValue {
     } else return null;
 }
 
+pub fn getTypeFromUUID(uuid: u64) ?TypeValue {
+    for (defined_types.?.items) |*t| {
+        if (t.global_uuid == uuid) return TypeValue{ .defined = t };
+    } else return null;
+}
+
 fn abstractTypeInfo(ty: *const Symbol) types.TypeInfo {
     return switch (ty.value) {
         .@"enum" => |e| e.asTypeInfo(),

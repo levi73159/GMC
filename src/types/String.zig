@@ -18,6 +18,7 @@ mem_type: union(enum) {
 },
 allocator: std.mem.Allocator,
 
+/// only returns an error if `is_heap`
 pub fn init(allocator: std.mem.Allocator, value: []const u8, is_heap: bool) !Self {
     if (is_heap) {
         const inner = try allocator.create(Inner);
