@@ -235,10 +235,8 @@ pub fn index(self: *Self, i: Value) Value {
     const iv = rt.castToIndex(i, self.items.len) catch return Value.err("IndexError", "Can't cast to index", null);
     if (iv < 0 or iv >= self.items.len) return Value.err("IndexError", "Index out of range", null);
     _ = self.items[iv].value.ref();
-    return Value{ .symbol = .{
-        .ptr = &self.items[iv],
-        .type = self.item_type,
-    } };
+    self.items[iv].type = self.item_type;
+    return Value{ .symbol = &self.items[iv] };
 }
 
 pub fn field(self: *Self, name: []const u8) Value {

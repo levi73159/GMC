@@ -201,6 +201,7 @@ pub const SymbolType = std.meta.Tag(SymbolValue);
 pub const Symbol = struct {
     is_const: bool,
     value: SymbolValue,
+    type: ?Type = null,
 
     pub fn deinit(self: Symbol) void {
         self.value.deinit();

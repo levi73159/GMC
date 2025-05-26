@@ -10,30 +10,6 @@ const Type = @import("Type.zig");
 const TypeVal = @import("Token.zig").TypeValue;
 const SymbolTable = @import("SymbolTable.zig");
 
-pub const SymbolPtr = struct {
-    ptr: *SymbolTable.Symbol,
-    type: Type,
-
-    const Self = @This();
-
-    pub fn init(ptr: *SymbolTable.Symbol, ty: TypeVal) Self {
-        return Self{ .ptr = ptr, .type = ty };
-    }
-
-    pub fn deinit(self: Self) void {
-        self.ptr.deinit();
-    }
-
-    pub fn ref(self: Self) Self {
-        _ = self.ptr.ref();
-        return self;
-    }
-
-    pub fn clone(self: Self) SymbolTable.Symbol {
-        return self.ptr.clone();
-    }
-};
-
 pub const Signal = union(enum) {
     @"return": Value,
     @"break": Value,
@@ -60,7 +36,7 @@ pub const Value = union(enum) {
 
     // special
     ptr: *Value, // all pointers are nonconst
-    symbol: SymbolPtr,
+    symbol: *SymbolTable.Symbol,
     none,
     runtime_error: Error,
 
@@ -70,7 +46,7 @@ pub const Value = union(enum) {
     pub fn depointerizeToValue(self: Value) Value {
         return switch (self) {
             .ptr => |p| p.*,
-            .symbol => |s| castToValueNoRef(s.ptr.value),
+            .symbol => |s| castToValueNoRef(s.value),
             else => self,
         };
     }
@@ -95,7 +71,7 @@ pub const Value = union(enum) {
             .list => |l| Value{ .boolean = l.items.len > 0 },
             .boolean, .runtime_error => self,
             .ptr => |p| p.convertToBool(),
-            .symbol => |s| castToValueNoRef(s.ptr.value).convertToBool(),
+            .symbol => |s| castToValueNoRef(s.value).convertToBool(),
             .type, .@"struct", .@"enum" => Value{ .boolean = true },
             .enum_instance => |e| {
                 if (e.field.value == .bool) return Value{ .boolean = e.field.value.bool };
@@ -157,7 +133,10 @@ pub const Value = union(enum) {
                 _ = p.ref();
                 break :blk self;
             },
-            .symbol => |s| Value{ .symbol = s.ref() },
+            .symbol => |s| blk: {
+                _ = s.ref();
+                break :blk self;
+            },
             else => self,
         };
     }

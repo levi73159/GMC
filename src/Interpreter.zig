@@ -255,7 +255,7 @@ fn evalVarDecl(self: Self, og_node: *const Node) rt.Result {
     }
     defer if (ret_error) symval.deinit();
 
-    const symbol = SymbolTable.Symbol{ .is_const = node.is_const.n, .value = symval };
+    const symbol = SymbolTable.Symbol{ .is_const = node.is_const.n, .value = symval, .type = node.type };
 
     self.symbols.add(node.identifier.lexeme, symbol) catch |err| {
         switch (err) {
@@ -316,8 +316,11 @@ fn evalVarAssign(self: Self, og_node: *const Node) rt.Result {
                     return rt.Result.val(value.ref());
                 },
                 .symbol => |s| {
-                    if (s.ptr.is_const) return rt.Result.err("Symbol is immutable", "The symbol is immutable (const)", og_node.getPos());
-                    const rs = rt.castToTypeWithErrorMessage(self.allocator, value, s.type, &s.ptr.value);
+                    if (s.is_const) return rt.Result.err("Symbol is immutable", "The symbol is immutable (const)", og_node.getPos());
+                    const rs = rt.castToTypeWithErrorMessage(self.allocator, value, s.type orelse blk: {
+                        std.log.warn("Symbol has no type", .{});
+                        break :blk Type.any();
+                    }, &s.value);
                     if (checkRuntimeErrorOrSignal(rs, og_node)) |err| return err;
                     return rt.Result.val(value);
                 },

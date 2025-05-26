@@ -51,9 +51,6 @@ pub fn asTypeInfo(self: Self) ty.TypeInfo {
 pub fn field(self: Self, name: []const u8) Value {
     const sym = self.inner.getPtr(name) orelse return Value.err("Field does not exist", "The field does not exist", null);
     return Value{
-        .symbol = .{
-            .type = Type.any(), // TODO: change this to the type of the field
-            .ptr = sym,
-        },
+        .symbol = sym,
     };
 }

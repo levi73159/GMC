@@ -4,8 +4,6 @@ struct Test {
     const float nochange = 69420;
 }
 
-const list<int> l = [1, 2, 3, 4, 5];
-
 Test.x = 32;
 
 println(Test.x);
