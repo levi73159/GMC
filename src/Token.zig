@@ -67,6 +67,7 @@ pub const Kind = enum {
 
     func_kw,
     enum_kw,
+    struct_kw, // change this to class_kw once we have inheritance
 
     pub fn getKeyword(lexeme: []const u8) ?Kind {
         var buf: [2555]u8 = undefined;

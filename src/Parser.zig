@@ -51,12 +51,15 @@ pub fn init(tokens: []const Token, node_allocator: std.mem.Allocator, allocator:
     };
 }
 
-pub fn deinit(self: Self, nodes: []const *const tree.Node) void {
+pub fn deinitCache(self: Self) void {
+    self.types.deinit();
+}
+
+pub fn deinitNodes(self: Self, nodes: []const *const tree.Node) void {
     for (nodes) |node| {
         node.deinit();
         self.node_allocator.destroy(node);
     }
-    self.types.deinit();
 }
 
 fn checkTypeExists(self: Self, name: []const u8) bool {
@@ -113,7 +116,7 @@ fn allocNode(self: *Self, node: tree.Node) !*const tree.Node {
 pub fn parse(self: *Self) ParseError![]const *const tree.Node {
     var nodes: std.ArrayList(*const tree.Node) = std.ArrayList(*const tree.Node).init(self.node_allocator);
     errdefer {
-        self.deinit(nodes.items);
+        self.deinitNodes(nodes.items);
         nodes.deinit();
     }
     while (try self.parseInstruction()) |node| {
@@ -250,7 +253,29 @@ fn parseStatement(self: *Self) ParseError!*const tree.Node {
     if (self.consume(.enum_kw)) |_| {
         return self.parseEnum();
     }
+    if (self.consume(.struct_kw)) |_| {
+        return self.parseStruct();
+    }
     return self.parseExprWithSemicolon();
+}
+
+// Use for inner structs
+fn parseDeclOnly(self: *Self) ParseError!*const tree.Node {
+    if (self.match(.var_kw) or self.match(.const_kw)) {
+        const node = self.parseVariableDecl();
+        if (self.consume(.semicolon) == null) return error.ExpectedSemicolon; // semicolon is required for variable declaration
+        return node;
+    }
+    if (self.match(.func_kw)) {
+        return self.parseFunction();
+    }
+    if (self.consume(.enum_kw)) |_| {
+        return self.parseEnum();
+    }
+    if (self.consume(.struct_kw)) |_| {
+        return self.parseStruct();
+    }
+    return error.ExpectedStatement;
 }
 
 fn parseExprWithSemicolon(self: *Self) ParseError!*const tree.Node {
@@ -333,7 +358,7 @@ fn parseAssign(self: *Self) ParseError!*const tree.Node {
     const lhs = try self.parseVariableAssignOp();
     if (self.consume(.equal)) |_| {
         switch (lhs.*) {
-            .identifier, .index_access => {},
+            .identifier, .index_access, .field_access => {},
             else => return error.InvalidAssignmentTarget,
         }
         const rhs = try self.parseExpression();
@@ -907,6 +932,36 @@ fn parseEnum(self: *Self) ParseError!*const tree.Node {
             .fields = try fields.toOwnedSlice(),
             .allocator = self.allocator,
             .is_deinit = is_deinit,
+            .end = end,
+        },
+    });
+}
+
+fn parseStruct(self: *Self) ParseError!*const tree.Node {
+    const identifier = self.consume(.identifier) orelse return self.badToken(error.ExpectedIdentifier);
+    for (self.types.items) |t| {
+        if (std.mem.eql(u8, t, identifier.lexeme)) return error.DuplicateType;
+    }
+
+    _ = self.consume(.left_curly_bracket) orelse return self.badToken(error.MissingCurlyBracket);
+
+    var inner = std.ArrayList(*const tree.Node).init(self.node_allocator);
+    errdefer inner.deinit();
+
+    while (!self.match(.right_curly_bracket)) {
+        const node = try self.parseDeclOnly();
+        try inner.append(node);
+    }
+
+    const end = self.consume(.right_curly_bracket) orelse return self.badToken(error.MissingCurlyBracket);
+
+    try self.types.append(identifier.lexeme);
+    _ = Type.register(self.allocator, identifier.lexeme);
+
+    return self.allocNode(tree.Node{
+        .struct_decl = .{
+            .identifier = identifier,
+            .inner = try inner.toOwnedSlice(),
             .end = end,
         },
     });

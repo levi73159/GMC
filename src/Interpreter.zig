@@ -107,6 +107,7 @@ pub fn evalNode(self: Self, node: *const Node) rt.Result {
         .index_access => self.evalIndex(node),
         .field_access => self.evalFieldAccess(node),
         .enum_decl => self.evalEnumDecl(node),
+        .struct_decl => self.evalStructDecl(node),
     };
 }
 
@@ -299,7 +300,7 @@ fn evalVarAssign(self: Self, og_node: *const Node) rt.Result {
             };
             return rt.Result.val(rt.castToValue(symval).ref());
         },
-        .index_access => {
+        .index_access, .field_access => {
             const target = self.evalNode(node.left);
             if (checkRuntimeErrorOrSignal(target, node.left)) |err| return err;
             const target_val = target.value;
@@ -315,6 +316,7 @@ fn evalVarAssign(self: Self, og_node: *const Node) rt.Result {
                     return rt.Result.val(value.ref());
                 },
                 .symbol => |s| {
+                    if (s.ptr.is_const) return rt.Result.err("Symbol is immutable", "The symbol is immutable (const)", og_node.getPos());
                     const rs = rt.castToTypeWithErrorMessage(self.allocator, value, s.type, &s.ptr.value);
                     if (checkRuntimeErrorOrSignal(rs, og_node)) |err| return err;
                     return rt.Result.val(value);
@@ -698,6 +700,42 @@ fn evalEnumDecl(self: Self, og_node: *const Node) rt.Result {
 
     const global_uuid = Type.setType(self.allocator, node.identifier.lexeme, ptr);
     ptr.value.@"enum".global_uuid = global_uuid;
+
+    return rt.Result.none();
+}
+
+fn evalStructDecl(self: Self, og_node: *const Node) rt.Result {
+    var is_error = false;
+
+    const node = og_node.struct_decl;
+    defer if (!self.static) node.deinit();
+
+    const inner_table = self.allocator.create(SymbolTable) catch unreachable;
+    inner_table.* = SymbolTable.init(self.allocator);
+    defer if (is_error) inner_table.deinit(); // errdefer
+
+    const scope = self.newScope(inner_table, self.allocator);
+
+    for (node.inner) |inner_node| {
+        const result = scope.evalNode(inner_node);
+        if (checkRuntimeErrorOrSignal(result, inner_node)) |err| {
+            is_error = true;
+            return err;
+        }
+        result.deinit(); // we do not wanna keep result
+    }
+
+    if (is_error)
+        return rt.Result.err("Unexpected error", "The interpreter ran into an unexpected error", og_node.getPos());
+
+    const struct_decl = ty.Struct.init(node.identifier.lexeme, inner_table);
+    const ptr = self.symbols.addGetPtr(node.identifier.lexeme, .{
+        .is_const = true, // declared structs are always const
+        .value = .{ .@"struct" = struct_decl },
+    }) catch unreachable;
+
+    const global_uuid = Type.setType(self.allocator, node.identifier.lexeme, ptr);
+    ptr.value.@"struct".global_uuid = global_uuid;
 
     return rt.Result.none();
 }

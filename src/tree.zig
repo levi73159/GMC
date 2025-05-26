@@ -35,6 +35,7 @@ pub const Node = union(enum) {
     index_access: IndexAccess,
     field_access: FieldAccess,
     enum_decl: EnumDecl,
+    struct_decl: StructDecl,
 
     pub fn getLeftPos(self: Node) ?DebugPos {
         return switch (self) {
@@ -63,6 +64,7 @@ pub const Node = union(enum) {
             .index_access => |i| i.value.getLeftPos(),
             .field_access => |f| f.value.getLeftPos(),
             .enum_decl => |e| e.identifier.pos,
+            .struct_decl => |s| s.identifier.pos,
         };
     }
 
@@ -93,6 +95,7 @@ pub const Node = union(enum) {
             .index_access => |i| i.value.getRightPos(),
             .field_access => |f| f.field.pos,
             .enum_decl => |e| e.end.pos,
+            .struct_decl => |s| s.end.pos,
         };
     }
 
@@ -362,5 +365,15 @@ pub const EnumDecl = struct {
 
         self.allocator.free(self.fields);
         self.is_deinit.* = true;
+    }
+};
+
+pub const StructDecl = struct {
+    identifier: Token,
+    inner: []const *const Node, // inner fields, and functions
+    end: Token,
+
+    pub fn deinit(self: StructDecl) void {
+        for (self.inner) |node| node.deinit();
     }
 };

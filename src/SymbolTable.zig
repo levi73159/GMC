@@ -11,6 +11,8 @@ pub const SymbolValue = union(enum) {
     @"enum": types.Enum,
     enum_instance: types.Enum.Instance,
 
+    @"struct": types.Struct,
+
     // value types
     u8: u8,
     u16: u16,
@@ -42,6 +44,9 @@ pub const SymbolValue = union(enum) {
             },
             .@"enum" => |e| {
                 e.deinit();
+            },
+            .@"struct" => |s| {
+                s.deinit();
             },
             else => {},
         }
@@ -145,7 +150,23 @@ pub const SymbolValue = union(enum) {
                     else => return false,
                 }
             },
-            else => return false,
+            .@"enum" => |lhs| {
+                switch (other) {
+                    .@"enum" => |rhs| {
+                        return lhs.uuid == rhs.uuid;
+                    },
+                    else => return false,
+                }
+            },
+            .enum_instance => |lhs| {
+                switch (other) {
+                    .enum_instance => |rhs| {
+                        return lhs.equal(rhs);
+                    },
+                    else => return false,
+                }
+            },
+            else => return false, // TODO: structs
         }
     }
 
@@ -162,6 +183,7 @@ pub const SymbolValue = union(enum) {
             .void, .type => 0, // comptime or none size
             .@"enum" => |e| e.tagged.size() orelse 8,
             .enum_instance => |e| e.field.value.size(),
+            .@"struct" => 0,
         };
     }
 

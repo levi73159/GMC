@@ -183,6 +183,8 @@ fn run(text: []const u8, allocator: std.mem.Allocator, dbg_allocator: std.mem.Al
     defer allocator.free(tokens);
 
     var parser = Parser.init(tokens, allocator, dbg_allocator);
+    defer parser.deinitCache();
+
     const nodes = parser.parse() catch |err| switch (err) {
         error.OutOfMemory => {
             std.process.exit(255);
@@ -206,7 +208,7 @@ fn run(text: []const u8, allocator: std.mem.Allocator, dbg_allocator: std.mem.Al
             return;
         },
     };
-    defer parser.deinit(nodes);
+    defer parser.deinitNodes(nodes);
 
     var interperter = Interpreter.init(dbg_allocator, symbols);
     interperter.heap_str_only = force_heap;

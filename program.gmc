@@ -1,32 +1,13 @@
-println("Welcome to GMC!");
-
-print("Please enter your name: ");
-const name = readLine();
-
-println("Hello, " + name + "!");
-
-enum FavouriteColor[int] {
-    red = 1,
-    green,
-    blue,
-    yellow,
-    black,
-    white,
+struct Test {
+    var int x;
+    var int y = 74;
+    const float nochange = 69420;
 }
 
-println("Favorite Color options: ");
-println("Red", FavouriteColor.red);
-println("Green", FavouriteColor.green);
-println("Blue", FavouriteColor.blue);
-println("Yellow", FavouriteColor.yellow);
-println("Black", FavouriteColor.black);
-println("White", FavouriteColor.white);
+const list<int> l = [1, 2, 3, 4, 5];
 
-print("Please enter your favourite color: ");
-const color = readLine();
+Test.x = 32;
 
-const int colorInt = toInt(color);
-
-const FavouriteColor favColor = colorInt;
-
-println("Your favorite color is: " + getName(favColor));
+println(Test.x);
+println(Test.y);
+println(Test.nochange);

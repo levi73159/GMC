@@ -41,6 +41,7 @@ pub const Signal = union(enum) {
 };
 
 pub const Value = union(enum) {
+    // basics
     integer: i65,
     float: f64,
     boolean: bool,
@@ -51,9 +52,13 @@ pub const Value = union(enum) {
 
     type: types.TypeInfo,
 
+    // types
     @"enum": types.Enum, // the type definition of an enum
     enum_instance: types.Enum.Instance, // the instance of an enum aka value (Enum.xyz) will return this
 
+    @"struct": types.Struct,
+
+    // special
     ptr: *Value, // all pointers are nonconst
     symbol: SymbolPtr,
     none,
@@ -91,8 +96,7 @@ pub const Value = union(enum) {
             .boolean, .runtime_error => self,
             .ptr => |p| p.convertToBool(),
             .symbol => |s| castToValueNoRef(s.ptr.value).convertToBool(),
-            .type => Value{ .boolean = true },
-            .@"enum" => Value{ .boolean = true },
+            .type, .@"struct", .@"enum" => Value{ .boolean = true },
             .enum_instance => |e| {
                 if (e.field.value == .bool) return Value{ .boolean = e.field.value.bool };
                 const val = rt.castToValueNoRef(e.field.value);
@@ -736,6 +740,7 @@ pub const Value = union(enum) {
         return switch (self) {
             .list => |l| l.field(name),
             .@"enum" => |e| e.field(name),
+            .@"struct" => |s| s.field(name),
             else => Value.err("Invalid Type", "Value doesn't have any fields (not a struct)", null),
         };
     }
@@ -779,6 +784,7 @@ pub const Value = union(enum) {
             },
             .ptr, .symbol => try writer.print("{}", .{self.depointerizeToValue()}),
             .@"enum" => |e| try writer.print("[Type enum: {s}]", .{e.enum_name}),
+            .@"struct" => |s| try writer.print("[Type struct: {s}]", .{s.name}),
             .enum_instance => |e| try writer.print("{}", .{e.field.value}),
             .type => |t| try writer.print("[Type any({d}): {s}({d}]", .{ t.type_uuid, t.define.type_name, t.define.size }),
         }

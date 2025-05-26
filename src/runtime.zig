@@ -334,6 +334,7 @@ pub fn castToValue(v: SymbolTable.SymbolValue) Value {
     return castToValueNoRef(v).ref();
 }
 
+// an easy function to cast a SymbolValue[heavy type] to a Value[light type]
 pub fn castToValueNoRef(v: SymbolTable.SymbolValue) Value {
     return switch (v) {
         .i8 => |i| Value{ .integer = i },
@@ -355,6 +356,7 @@ pub fn castToValueNoRef(v: SymbolTable.SymbolValue) Value {
         .list => |l| Value{ .list = l },
         .@"enum" => |e| Value{ .@"enum" = e },
         .enum_instance => |e| Value{ .enum_instance = e },
+        .@"struct" => |s| Value{ .@"struct" = s },
     };
 }
 
@@ -377,7 +379,7 @@ pub fn getTypeValFromSymbolValue(v: SymbolTable.SymbolValue) !TypeVal {
         .list => TypeVal.list,
         .type => TypeVal.type,
         .enum_instance => TypeVal.anyenum, // enum_instance is the same as anyenum but without a specific enum type
-        .func, .@"enum" => return error.InvalidType, // func does not havea typeval
+        .func, .@"enum", .@"struct" => return error.InvalidType, // func does not havea typeval
     };
 }
 

@@ -16,6 +16,7 @@ pub const TypeVal = @import("Token.zig").TypeValue;
 pub const List = @import("types/List.zig");
 pub const String = @import("types/String.zig");
 pub const Enum = @import("types/Enum.zig");
+pub const Struct = @import("types/Struct.zig");
 pub const TypeInfo = @import("types/TypeInfo.zig");
 
 pub const Error = struct {
