@@ -63,6 +63,7 @@ pub const BaseFunction = struct {
 
             symbols.add(param.name.lexeme, SymbolTable.Symbol{ .value = symbol_value, .is_const = true }) catch @panic("out of memory");
         }
+
         // setting scope heres mean that if there is a param x and a varaible x outside of the function it will be shadowed by the Params
         // if we don't wan't that and want it to cause an error we can put this line before we add the params
         symbols.parent = self.parent_scope;
@@ -169,7 +170,7 @@ pub const Function = union(enum) {
 
     pub fn callWithType(self: Function, this: Value, args: []const Value, base: Intrepreter) Result {
         return switch (self) {
-            .base => Result.err("Not supported", "Feature not supported", null),
+            .base => |f| f.call(args, base),
             .bultin => |f| f.callWithType(this, args, base),
         };
     }

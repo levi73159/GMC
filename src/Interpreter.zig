@@ -564,7 +564,6 @@ fn callValue(self: Self, og_node: *const Node, callee_value: ?rt.Value, callee_p
             const actual_args = args_result.args;
 
             if (callee_value) |callee| {
-                if (!func.isMethod()) return rt.Result.err("Not a method", "The symbol is not a method", callee_pos);
                 const ret = func.callWithType(callee.ref(), actual_args, self);
                 return self.handleFunctionResult(func, ret, og_node);
             }
@@ -716,6 +715,8 @@ fn evalStructDecl(self: Self, og_node: *const Node) rt.Result {
     const inner_table = self.allocator.create(SymbolTable) catch unreachable;
     inner_table.* = SymbolTable.init(self.allocator);
     defer if (is_error) inner_table.deinit(); // errdefer
+
+    inner_table.parent = self.symbols;
 
     const scope = self.newScope(inner_table, self.allocator);
 

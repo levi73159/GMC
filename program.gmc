@@ -2,10 +2,11 @@ struct Test {
     var int x;
     var int y = 74;
     const float nochange = 69420;
+
+    func add(int a, int b) int {
+        println(nochange);
+        return a + b + y;
+    }
 }
 
-Test.x = 32;
-
-println(Test.x);
-println(Test.y);
-println(Test.nochange);
+println(Test.add(1, 2));
