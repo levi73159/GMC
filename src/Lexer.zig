@@ -82,6 +82,7 @@ pub fn next(self: *Self) anyerror!?Token {
         '^' => self.initToken(.caret, "^"),
         '<' => self.initTokenOrOther(.lt, .lt_equal, "<", "<=", '='),
         '>' => self.initTokenOrOther(.gt, .gt_equal, ">", ">=", '='),
+        ':' => self.initToken(.colon, ":"),
         ';' => self.initToken(.semicolon, ";"),
         '=' => self.initTokenOrOther(.equal, .equal_equal, "=", "==", '='),
         '!' => self.initTokenOrOther(.bang, .bang_equal, "!", "!=", '='),

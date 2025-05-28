@@ -107,6 +107,15 @@ fn peekN(self: Self, n: usize) ?Token {
     return if (self.index + n < self.tokens.len) self.tokens[self.index + n] else null;
 }
 
+fn peekNextIsType(self: Self, n: usize) bool {
+    const token = self.peekN(n) orelse return false;
+
+    if (token.kind == .type) return true;
+    if (token.kind != .identifier) return false;
+
+    return self.checkTypeExists(token.lexeme);
+}
+
 fn allocNode(self: *Self, node: tree.Node) !*const tree.Node {
     const ptr = try self.node_allocator.create(tree.Node);
     ptr.* = node;
@@ -225,7 +234,7 @@ fn parseStatement(self: *Self) ParseError!*const tree.Node {
             return node;
         }
     }
-    if (self.match(.func_kw)) {
+    if (self.match(.func_kw) or self.match(.mkfn_kw)) {
         return try self.parseFunction();
     }
     if (self.consume(.break_kw)) |st| {
@@ -266,7 +275,7 @@ fn parseDeclOnly(self: *Self) ParseError!*const tree.Node {
         if (self.consume(.semicolon) == null) return error.ExpectedSemicolon; // semicolon is required for variable declaration
         return node;
     }
-    if (self.match(.func_kw)) {
+    if (self.match(.func_kw) or self.match(.mkfn_kw)) {
         return self.parseFunction();
     }
     if (self.consume(.enum_kw)) |_| {
@@ -274,6 +283,11 @@ fn parseDeclOnly(self: *Self) ParseError!*const tree.Node {
     }
     if (self.consume(.struct_kw)) |_| {
         return self.parseStruct();
+    }
+    if (self.peekNextIsType(0)) {
+        const node = self.parseFieldDecl();
+        if (self.consume(.semicolon) == null) return error.ExpectedSemicolon; // semicolon is required for field declaration
+        return node;
     }
     return error.ExpectedStatement;
 }
@@ -707,9 +721,38 @@ fn parseBasePrimary(self: *Self) ParseError!*const tree.Node {
         return self.allocNode(tree.Node{ .boolean = .{ .n = false, .orginal = tok } });
     }
 
+    if (self.consume(.make_kw)) |_| return self.parseMake();
     if (self.match(.left_bracket)) return self.parseArray();
 
     return error.ExpectedStatement;
+}
+
+fn parseMake(self: *Self) ParseError!*const tree.Node {
+    const name: ?Token = if (self.consume(.colon)) |_|
+        self.consume(.identifier) orelse return error.ExpectedIdentifier
+    else
+        null;
+
+    const t = try self.parseType(false);
+    if (self.consume(.left_paren)) |_| {
+        const args = try self.parseArguments();
+        _ = self.consume(.right_paren) orelse return self.badToken(error.MissingParen);
+        return self.allocNode(tree.Node{
+            .make = .{
+                .name = name,
+                .type = t,
+                .args = args,
+            },
+        });
+    } else {
+        return self.allocNode(tree.Node{
+            .make = .{
+                .name = name,
+                .type = t,
+                .args = &.{},
+            },
+        });
+    }
 }
 
 fn parseArguments(self: *Self) ParseError![]const *const tree.Node {
@@ -808,7 +851,8 @@ fn parseString(self: *Self, tok: Token, is_char: bool) ParseError!*const tree.No
 }
 
 fn parseFunction(self: *Self) ParseError!*const tree.Node {
-    const start = self.consume(.func_kw) orelse return self.badToken(error.UnexpectedToken);
+    const start = self.consume(.func_kw) orelse self.consume(.mkfn_kw) orelse return self.badToken(error.ExpectedToken);
+    const is_make: bool = start.kind == .mkfn_kw;
 
     const identifier = self.consume(.identifier) orelse return self.badToken(error.ExpectedIdentifier);
 
@@ -824,6 +868,8 @@ fn parseFunction(self: *Self) ParseError!*const tree.Node {
                 .params = &.{},
                 .ret_type = ret_type,
                 .body = body,
+
+                .is_make = is_make,
             },
         });
     }
@@ -854,6 +900,8 @@ fn parseFunction(self: *Self) ParseError!*const tree.Node {
             .params = try params.toOwnedSlice(),
             .ret_type = ret_type,
             .body = body,
+
+            .is_make = is_make,
         },
     });
 }
@@ -963,6 +1011,20 @@ fn parseStruct(self: *Self) ParseError!*const tree.Node {
             .identifier = identifier,
             .inner = try inner.toOwnedSlice(),
             .end = end,
+        },
+    });
+}
+
+fn parseFieldDecl(self: *Self) ParseError!*const tree.Node {
+    const t = try self.parseType(false);
+    const identifier = self.consume(.identifier) orelse return self.badToken(error.ExpectedIdentifier);
+    const value: ?*const tree.Node = if (self.consume(.equal)) |_| try self.parseExpression() else null;
+
+    return self.allocNode(tree.Node{
+        .field_decl = .{
+            .type = t,
+            .identifier = identifier,
+            .value = value,
         },
     });
 }

@@ -240,7 +240,6 @@ pub fn index(self: *Self, i: Value) Value {
 }
 
 pub fn field(self: *Self, name: []const u8) Value {
-    defer self.deinit();
     if (std.mem.eql(u8, name, "length")) {
         return Value{ .integer = @intCast(@as(isize, @intCast(self.items.len))) };
     } else {

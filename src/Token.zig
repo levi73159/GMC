@@ -34,6 +34,7 @@ pub const Kind = enum {
     comma,
     dot,
 
+    colon,
     semicolon,
     equal,
 
@@ -64,8 +65,10 @@ pub const Kind = enum {
     break_kw,
     continue_kw,
     return_kw,
+    make_kw,
 
     func_kw,
+    mkfn_kw,
     enum_kw,
     struct_kw, // change this to class_kw once we have inheritance
 
@@ -80,6 +83,7 @@ pub const TypeValue = enum {
     // special types
     any,
     anyenum, // any enum (aka any enum can be stored here)
+    anyobj, // any object can be stored here
     type,
 
     // basic types

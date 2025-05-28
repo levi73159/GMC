@@ -3,10 +3,13 @@ struct Test {
     var int y = 74;
     const float nochange = 69420;
 
-    func add(int a, int b) int {
-        println(nochange);
-        return a + b + y;
-    }
+    int x;
+    int y = 32;
 }
 
-println(Test.add(1, 2));
+var anyobj x = make Test;
+println(x.x);
+println(x.y);
+println(x.nochange);
+
+

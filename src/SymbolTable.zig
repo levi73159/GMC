@@ -12,6 +12,7 @@ pub const SymbolValue = union(enum) {
     enum_instance: types.Enum.Instance,
 
     @"struct": types.Struct,
+    struct_instance: *types.Struct.Instance,
 
     // value types
     u8: u8,
@@ -36,18 +37,11 @@ pub const SymbolValue = union(enum) {
 
     pub fn deinit(self: SymbolValue) void {
         switch (self) {
-            .string => |s| {
-                s.deinit();
-            },
-            .list => |l| {
-                l.deinit();
-            },
-            .@"enum" => |e| {
-                e.deinit();
-            },
-            .@"struct" => |s| {
-                s.deinit();
-            },
+            .string => |s| s.deinit(),
+            .list => |l| l.deinit(),
+            .@"enum" => |e| e.deinit(),
+            .@"struct" => |s| s.deinit(),
+            .struct_instance => |s| s.deinit(),
             else => {},
         }
     }
@@ -56,6 +50,7 @@ pub const SymbolValue = union(enum) {
         return switch (self) {
             .string => |s| SymbolValue{ .string = s.clone() },
             .list => |l| SymbolValue{ .list = l.clone() },
+            .struct_instance => |s| SymbolValue{ .struct_instance = s.clone() },
             else => self,
         };
     }
@@ -64,6 +59,7 @@ pub const SymbolValue = union(enum) {
         return switch (self) {
             .string => |s| SymbolValue{ .string = s.ref() },
             .list => |l| SymbolValue{ .list = l.ref() },
+            .struct_instance => |s| SymbolValue{ .struct_instance = s.ref() },
             else => self,
         };
     }
@@ -184,6 +180,7 @@ pub const SymbolValue = union(enum) {
             .@"enum" => |e| e.tagged.size() orelse 8,
             .enum_instance => |e| e.field.value.size(),
             .@"struct" => 0,
+            .struct_instance => 0,
         };
     }
 
@@ -208,11 +205,11 @@ pub const Symbol = struct {
     }
 
     pub fn clone(self: Symbol) Symbol {
-        return Symbol{ .is_const = self.is_const, .value = self.value.clone() };
+        return Symbol{ .is_const = self.is_const, .value = self.value.clone(), .type = self.type };
     }
 
     pub fn ref(self: Symbol) Symbol {
-        return Symbol{ .is_const = self.is_const, .value = self.value.ref() };
+        return Symbol{ .is_const = self.is_const, .value = self.value.ref(), .type = self.type };
     }
 };
 
@@ -277,4 +274,18 @@ pub fn getPtr(self: *Self, name: []const u8) ?*Symbol {
     if (self.table.getPtr(name)) |symbol| return symbol;
     if (self.parent) |parent| return parent.getPtr(name);
     return null;
+}
+
+pub fn clone(self: *Self) !Self {
+    var self_clone = Self{
+        .allocator = self.allocator,
+        .parent = self.parent,
+        .table = std.StringHashMap(Symbol).init(self.allocator),
+    };
+
+    var it = self.table.iterator();
+    while (it.next()) |entry| {
+        try self_clone.table.put(try self.allocator.dupe(u8, entry.key_ptr.*), entry.value_ptr.clone());
+    }
+    return self_clone;
 }

@@ -33,6 +33,7 @@ pub const Value = union(enum) {
     enum_instance: types.Enum.Instance, // the instance of an enum aka value (Enum.xyz) will return this
 
     @"struct": types.Struct,
+    struct_instance: *types.Struct.Instance,
 
     // special
     ptr: *Value, // all pointers are nonconst
@@ -72,7 +73,7 @@ pub const Value = union(enum) {
             .boolean, .runtime_error => self,
             .ptr => |p| p.convertToBool(),
             .symbol => |s| castToValueNoRef(s.value).convertToBool(),
-            .type, .@"struct", .@"enum" => Value{ .boolean = true },
+            .type, .@"struct", .@"enum", .struct_instance => Value{ .boolean = true },
             .enum_instance => |e| {
                 if (e.field.value == .bool) return Value{ .boolean = e.field.value.bool };
                 const val = rt.castToValueNoRef(e.field.value);
@@ -120,6 +121,7 @@ pub const Value = union(enum) {
             .list => |l| Value{ .list = l.clone() },
             .ptr => |p| p.clone(),
             .symbol => |s| castToValueNoRef(s.clone().value),
+            .struct_instance => |s| Value{ .struct_instance = s.clone() },
             else => self,
         };
     }
@@ -137,6 +139,7 @@ pub const Value = union(enum) {
                 _ = s.ref();
                 break :blk self;
             },
+            .struct_instance => |s| Value{ .struct_instance = s.ref() },
             else => self,
         };
     }
@@ -147,6 +150,7 @@ pub const Value = union(enum) {
             .runtime_error => |e| e.deinit(),
             .list => |l| l.deinit(),
             .ptr => |p| p.deinit(),
+            .struct_instance => |s| s.deinit(),
             else => {},
         }
     }
@@ -715,11 +719,13 @@ pub const Value = union(enum) {
     pub fn field(self_n: Value, name: []const u8) Value {
         const self = self_n.depointerizeToValue();
         if (self == .runtime_error) return self;
+        defer self.deinit();
 
         return switch (self) {
             .list => |l| l.field(name),
             .@"enum" => |e| e.field(name),
             .@"struct" => |s| s.field(name),
+            .struct_instance => |s| s.field(name),
             else => Value.err("Invalid Type", "Value doesn't have any fields (not a struct)", null),
         };
     }
@@ -762,8 +768,9 @@ pub const Value = union(enum) {
                 try writer.writeByte(']');
             },
             .ptr, .symbol => try writer.print("{}", .{self.depointerizeToValue()}),
-            .@"enum" => |e| try writer.print("[Type enum: {s}]", .{e.enum_name}),
             .@"struct" => |s| try writer.print("[Type struct: {s}]", .{s.name}),
+            .struct_instance => |s| try writer.print("[Type struct: {s}]", .{Type.getTypeFromUUID(s.global_uuid).?.defined.name}),
+            .@"enum" => |e| try writer.print("[Type enum: {s}]", .{e.enum_name}),
             .enum_instance => |e| try writer.print("{}", .{e.field.value}),
             .type => |t| try writer.print("[Type any({d}): {s}({d}]", .{ t.type_uuid, t.define.type_name, t.define.size }),
         }

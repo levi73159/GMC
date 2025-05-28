@@ -36,6 +36,8 @@ pub const Node = union(enum) {
     field_access: FieldAccess,
     enum_decl: EnumDecl,
     struct_decl: StructDecl,
+    field_decl: FieldDecl,
+    make: Make,
 
     pub fn getLeftPos(self: Node) ?DebugPos {
         return switch (self) {
@@ -65,6 +67,8 @@ pub const Node = union(enum) {
             .field_access => |f| f.value.getLeftPos(),
             .enum_decl => |e| e.identifier.pos,
             .struct_decl => |s| s.identifier.pos,
+            .field_decl => |f| f.type.pos,
+            .make => |m| if (m.name) |name| name.pos else m.type.pos,
         };
     }
 
@@ -96,6 +100,8 @@ pub const Node = union(enum) {
             .field_access => |f| f.field.pos,
             .enum_decl => |e| e.end.pos,
             .struct_decl => |s| s.end.pos,
+            .field_decl => |f| if (f.value) |value| value.getRightPos() else f.identifier.pos,
+            .make => |m| if (m.args.len > 0) m.args[m.args.len - 1].getRightPos() else m.type.pos,
         };
     }
 
@@ -290,6 +296,8 @@ pub const FunctionDecl = struct {
     ret_type: Type,
     body: *const Node,
 
+    is_make: bool,
+
     pub fn deinit(self: FunctionDecl) void {
         self.body.deinit();
     }
@@ -375,5 +383,25 @@ pub const StructDecl = struct {
 
     pub fn deinit(self: StructDecl) void {
         for (self.inner) |node| node.deinit();
+    }
+};
+
+pub const FieldDecl = struct {
+    type: Type,
+    identifier: Token,
+    value: ?*const Node,
+
+    pub fn deinit(self: FieldDecl) void {
+        if (self.value) |value| value.deinit();
+    }
+};
+
+pub const Make = struct {
+    name: ?Token,
+    type: Type,
+    args: []const *const Node,
+
+    pub fn deinit(self: Make) void {
+        for (self.args) |arg| arg.deinit();
     }
 };

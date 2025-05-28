@@ -108,6 +108,8 @@ pub fn evalNode(self: Self, node: *const Node) rt.Result {
         .field_access => self.evalFieldAccess(node),
         .enum_decl => self.evalEnumDecl(node),
         .struct_decl => self.evalStructDecl(node),
+        .field_decl => rt.Result.err("Not available", "Field declaration outside of struct", node.getPos()),
+        .make => self.evalMake(node),
     };
 }
 
@@ -483,6 +485,9 @@ fn evalFunctionDecl(self: Self, og_node: *const Node) rt.Result {
         // debug pos
         .name_pos = node.identifier.pos,
         .return_type_pos = node.ret_type.pos,
+
+        .outer_type = null, // no need for outer type
+        .func_type = if (node.is_make) .make else .static,
     };
 
     if (function.staticCheck(self)) |sigOrErr| switch (sigOrErr) {
@@ -718,10 +723,33 @@ fn evalStructDecl(self: Self, og_node: *const Node) rt.Result {
 
     inner_table.parent = self.symbols;
 
+    var fields = std.ArrayList(ty.Struct.Field).init(self.allocator);
+    defer fields.deinit();
+
     const scope = self.newScope(inner_table, self.allocator);
 
     for (node.inner) |inner_node| {
-        const result = scope.evalNode(inner_node);
+        const result = switch (inner_node.*) {
+            .field_decl => |field| result: {
+                const value: ?rt.Value = if (field.value) |val| get_value: {
+                    const result = scope.evalNode(val);
+                    if (checkRuntimeErrorOrSignal(result, val)) |err| {
+                        is_error = true;
+                        return err;
+                    }
+                    break :get_value result.value;
+                } else null;
+
+                fields.append(.{
+                    .type = field.type,
+                    .name = field.identifier.lexeme,
+                    .default = value,
+                }) catch return rt.Result.err("Out of memory", "The interpreter ran out of memory", og_node.getPos());
+
+                break :result rt.Result.none();
+            },
+            else => scope.evalNode(inner_node),
+        };
         if (checkRuntimeErrorOrSignal(result, inner_node)) |err| {
             is_error = true;
             return err;
@@ -732,7 +760,7 @@ fn evalStructDecl(self: Self, og_node: *const Node) rt.Result {
     if (is_error)
         return rt.Result.err("Unexpected error", "The interpreter ran into an unexpected error", og_node.getPos());
 
-    const struct_decl = ty.Struct.init(node.identifier.lexeme, inner_table);
+    const struct_decl = ty.Struct.init(node.identifier.lexeme, inner_table, fields.toOwnedSlice() catch unreachable);
     const ptr = self.symbols.addGetPtr(node.identifier.lexeme, .{
         .is_const = true, // declared structs are always const
         .value = .{ .@"struct" = struct_decl },
@@ -742,4 +770,41 @@ fn evalStructDecl(self: Self, og_node: *const Node) rt.Result {
     ptr.value.@"struct".global_uuid = global_uuid;
 
     return rt.Result.none();
+}
+
+fn evalMake(self: Self, og_node: *const Node) rt.Result {
+    const node = og_node.make;
+
+    if (node.name != null) @panic("Not implemented");
+
+    switch (node.type.value) {
+        .builtin => {
+            if (node.args.len != 0) return rt.Result.err("Unexpected arguments", "The Make Function doesn't take arguments", og_node.getPos());
+            const value = rt.castToType(self.allocator, .none, node.type) catch unreachable;
+
+            return rt.Result{ .value = rt.castToValueNoRef(value) };
+        },
+        .defined => |deft| {
+            switch (deft.ty.value) {
+                .@"enum" => |e| {
+                    if (node.args.len != 0) return rt.Result.err("Unexpected arguments", "The Make Function doesn't take arguments", og_node.getPos());
+
+                    const field_name = e.fields[0].name;
+                    const instance = e.field(field_name); // get the first field instance
+
+                    return rt.Result{ .value = instance };
+                },
+                .@"struct" => |s| {
+                    if (node.args.len != 0) @panic("TODO");
+
+                    const instance = s.makeNone(self.allocator) catch |err| {
+                        return rt.Result.errPrint(self.allocator, "Make Error", "Failed to make struct due to {s}", .{@errorName(err)}, og_node.getPos());
+                    };
+
+                    return rt.Result{ .value = .{ .struct_instance = instance } };
+                },
+                else => return rt.Result.err("Invalid type", "The type is not a valid type", og_node.getPos()),
+            }
+        },
+    }
 }

@@ -245,18 +245,32 @@ pub fn safeEnumCast(enum_type: types.Enum, v_n: Value) !SymbolTable.SymbolValue 
 
     return switch (v) {
         .enum_instance => |e| blk: {
-            if (e.type_uuid == enum_type.uuid) return SymbolTable.SymbolValue{ .enum_instance = e };
+            if (e.type_uuid == enum_type.uuid) break :blk SymbolTable.SymbolValue{ .enum_instance = e };
             break :blk try enum_type.castToEnum(v);
         },
         else => try enum_type.castToEnum(v),
     };
 }
 
-const InferType = enum { all, enums };
+pub fn safeStructCast(struct_type: types.Struct, v_n: Value) !SymbolTable.SymbolValue {
+    const v = v_n.depointerizeToValue();
+    defer v.deinit();
+
+    return switch (v) {
+        .struct_instance => |s| blk: {
+            if (s.type_uuid == struct_type.type_uuid) break :blk SymbolTable.SymbolValue{ .struct_instance = s.ref() };
+            return error.InvalidCast;
+        },
+        else => return error.InvalidCast, // can't cast a nonstruct to a struct
+    };
+}
+
+const InferType = enum { all, enums, objects };
 fn typeInfer(v_n: Value, infer_type: InferType) !SymbolTable.SymbolValue {
     var v = v_n.depointerizeToValue();
     switch (v) {
         .enum_instance => v.enum_instance.strict = false,
+        .struct_instance => v.struct_instance.strict = false,
         else => {},
     }
     switch (infer_type) {
@@ -264,6 +278,12 @@ fn typeInfer(v_n: Value, infer_type: InferType) !SymbolTable.SymbolValue {
         .enums => {
             switch (v) {
                 .@"enum", .enum_instance => {},
+                else => return error.InvalidCast,
+            }
+        },
+        .objects => {
+            switch (v) {
+                .@"struct", .struct_instance => {},
                 else => return error.InvalidCast,
             }
         },
@@ -278,6 +298,7 @@ fn typeInfer(v_n: Value, infer_type: InferType) !SymbolTable.SymbolValue {
         .list => |l| SymbolTable.SymbolValue{ .list = l },
         .@"enum" => |e| SymbolTable.SymbolValue{ .@"enum" = e },
         .enum_instance => |e| SymbolTable.SymbolValue{ .enum_instance = e },
+        .struct_instance => |s| SymbolTable.SymbolValue{ .struct_instance = s },
         .none => SymbolTable.SymbolValue{ .void = {} },
         else => return error.InvalidCast,
     };
@@ -299,6 +320,7 @@ pub fn castToSymbolValue(allocator: std.mem.Allocator, v_n: Value, ty: Type.Type
 pub fn castToDefinedType(_: std.mem.Allocator, v: Value, ty: Type.DefineType) !SymbolTable.SymbolValue {
     return switch (ty.ty.value) {
         .@"enum" => |e| try safeEnumCast(e, v),
+        .@"struct" => |s| try safeStructCast(s, v),
         else => return error.IsNotDefinedType,
     };
 }
@@ -325,6 +347,7 @@ fn castToBuiltinSymVal(allocator: std.mem.Allocator, v: Value, ty: TypeVal) !Sym
         .imlist => SymVal{ .list = try safeListCast(allocator, v, true) }, // immutable list
         .any => typeInfer(v, .all),
         .anyenum => typeInfer(v, .enums),
+        .anyobj => typeInfer(v, .objects),
         .type => SymVal{ .type = try safeTypeCast(v) },
     };
 }
@@ -357,6 +380,7 @@ pub fn castToValueNoRef(v: SymbolTable.SymbolValue) Value {
         .@"enum" => |e| Value{ .@"enum" = e },
         .enum_instance => |e| Value{ .enum_instance = e },
         .@"struct" => |s| Value{ .@"struct" = s },
+        .struct_instance => |s| Value{ .struct_instance = s },
     };
 }
 
@@ -379,6 +403,7 @@ pub fn getTypeValFromSymbolValue(v: SymbolTable.SymbolValue) !TypeVal {
         .list => TypeVal.list,
         .type => TypeVal.type,
         .enum_instance => TypeVal.anyenum, // enum_instance is the same as anyenum but without a specific enum type
+        .struct_instance => TypeVal.anyobj,
         .func, .@"enum", .@"struct" => return error.InvalidType, // func does not havea typeval
     };
 }

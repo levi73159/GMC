@@ -153,7 +153,7 @@ pub fn size(self: Self) ?u32 {
         .char => 1,
         .str => 8, // strings are pointers (8 bytes)
         .list, .imlist => 8, // list is a pointer (8 bytes)
-        .any, .anyenum => null,
+        .any, .anyenum, .anyobj => null,
         .void, .type => 0, // type is a type that doesn't have a size cause it comptime known
     };
 }

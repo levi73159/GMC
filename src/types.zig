@@ -42,12 +42,19 @@ pub const BaseFunction = struct {
     body: *const tree.Node, // root node to execute
     return_type: Type,
     parent_scope: ?*SymbolTable,
+    outer_type: ?Type,
+    func_type: enum { static, method, make } = .static,
+    // static is a function that can be called from anywhere
+    // method is a function that can only be called on a type
+    // make is a function that will be called when the type is created
 
     // debug pos, might be usefull but not needed
     name_pos: ?Pos = null,
     return_type_pos: ?Pos = null,
 
     pub fn call(self: BaseFunction, args: []const Value, base: Intrepreter) Result {
+        if (self.func_type != .static) return Result.err("Function Error", "Function is not a static function", null);
+
         var symbols = SymbolTable.init(base.allocator);
         defer symbols.deinit();
 
@@ -55,6 +62,41 @@ pub const BaseFunction = struct {
             const msg = std.fmt.allocPrint(base.allocator, "Expected {d} arguments got {d}", .{ self.params.len, args.len }) catch unreachable;
             return Result.errHeap(base.allocator, "Invalid number of arguments", msg, null);
         }
+
+        for (self.params, args) |param, arg| {
+            var symbol_value: SymbolTable.SymbolValue = undefined;
+            const rs = rt.castToTypeWithErrorMessage(base.allocator, arg, param.type, &symbol_value);
+            if (rt.checkRuntimeErrorOrSignal(rs, self.body)) |err| return err;
+
+            symbols.add(param.name.lexeme, SymbolTable.Symbol{ .value = symbol_value, .is_const = true }) catch @panic("out of memory");
+        }
+
+        // setting scope heres mean that if there is a param x and a varaible x outside of the function it will be shadowed by the Params
+        // if we don't wan't that and want it to cause an error we can put this line before we add the params
+        symbols.parent = self.parent_scope;
+
+        const scope = base.newScope(&symbols, base.allocator);
+        const ret = scope.evalNode(self.body);
+        if (rt.checkRuntimeErrorOrSignal(ret, self.body)) |sigOrErr| return sigOrErr;
+        return rt.Result.none();
+    }
+
+    pub fn callWithType(self: BaseFunction, this: Value, args: []const Value, base: Intrepreter) Result {
+        if (self.func_type != .method and self.func_type != .make) return Result.err("Function Error", "Function is not a method", null);
+
+        var symbols = SymbolTable.init(base.allocator);
+        defer symbols.deinit();
+
+        if (self.params.len != args.len) {
+            const msg = std.fmt.allocPrint(base.allocator, "Expected {d} arguments got {d}", .{ self.params.len, args.len }) catch unreachable;
+            return Result.errHeap(base.allocator, "Invalid number of arguments", msg, null);
+        }
+
+        symbols.add("this", SymbolTable.Symbol{
+            .value = rt.castToType(base.allocator, this, self.outer_type orelse unreachable) catch unreachable, // this cast should never fail
+            .type = Type.any(),
+            .is_const = true,
+        }) catch @panic("out of memory");
 
         for (self.params, args) |param, arg| {
             var symbol_value: SymbolTable.SymbolValue = undefined;
@@ -90,6 +132,17 @@ pub const BaseFunction = struct {
             if (rt.checkRuntimeErrorOrSignal(rs, self.body)) |err| return err;
 
             symbols.add(param.name.lexeme, SymbolTable.Symbol{ .value = symbol_value, .is_const = true }) catch @panic("out of memory");
+        }
+
+        if (self.func_type == .make or self.func_type == .method) {
+            symbols.add("this", SymbolTable.Symbol{
+                .value = rt.castToType(base.allocator, .none, self.outer_type orelse unreachable) catch unreachable, // this cast should never fail
+                .type = Type.any(),
+                .is_const = true,
+            }) catch |err| switch (err) {
+                error.OutOfMemory => std.debug.panic("OUT OF MEMORY!!!", .{}),
+                error.SymbolAlreadyExists => return rt.Result.err("Symbol already exists", "The symbol already exists", self.name_pos),
+            };
         }
 
         symbols.parent = self.parent_scope;
@@ -156,7 +209,7 @@ pub const Function = union(enum) {
 
     pub fn isMethod(self: Function) bool {
         return switch (self) {
-            .base => false,
+            .base => |f| f.func_type == .method or f.func_type == .make,
             .bultin => |f| f.is_method,
         };
     }
@@ -170,7 +223,7 @@ pub const Function = union(enum) {
 
     pub fn callWithType(self: Function, this: Value, args: []const Value, base: Intrepreter) Result {
         return switch (self) {
-            .base => |f| f.call(args, base),
+            .base => |f| f.callWithType(this, args, base),
             .bultin => |f| f.callWithType(this, args, base),
         };
     }
