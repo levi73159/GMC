@@ -258,6 +258,9 @@ pub fn set(self: *Self, name: []const u8, value: SymbolValue) !void {
         .enum_instance => |e| {
             if (e.strict == true and e.type_uuid != value.enum_instance.type_uuid) return error.InvalidTypes;
         },
+        .struct_instance => |s| {
+            if (s.strict == true and s.type_uuid != value.struct_instance.type_uuid) return error.InvalidTypes;
+        },
         else => {},
     }
 

@@ -7,9 +7,9 @@ struct Test {
     int y = 32;
 }
 
-var anyobj x = make Test;
-println(x.x);
-println(x.y);
-println(x.nochange);
+struct Strange {
+    int z = 54;
+}
 
-
+const Test x = make Test;
+println("X: {" + toStr(x.x) + ", " + toStr(x.y) + ", " + toStr(x.nochange) + "}");

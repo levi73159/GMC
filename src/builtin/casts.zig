@@ -113,13 +113,13 @@ pub fn asList(args: []const rt.Value, base: Interpreter) rt.Result {
     return val(.{ .list = list });
 }
 
-pub fn toString(args: []const rt.Value, base: Interpreter) rt.Result {
+pub fn toStr(args: []const rt.Value, base: Interpreter) rt.Result {
     defer end(args);
 
     if (args.len == 0) {
         return val(.{ .string = ty.String.init(base.allocator, "", false) catch unreachable });
     }
-    if (args.len != 1) return err("toString", "Expected 1 argument");
+    if (args.len != 1) return err("toStr", "Expected 1 argument");
 
     const arg = args[0];
     if (arg == .string) {

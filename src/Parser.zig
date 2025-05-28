@@ -343,11 +343,13 @@ fn parseType(self: *Self, allow_infer: bool) ParseError!Type {
         break :blk ptr;
     } else null;
 
-    return switch (tyval.kind) {
+    var ty = switch (tyval.kind) {
         .type => Type{ .value = .{ .builtin = tyval.value.type }, .generic_type = generic_type },
         .identifier => Type{ .value = Type.getType(tyval.lexeme).?, .generic_type = generic_type },
         else => unreachable,
     };
+    ty.pos = tyval.pos;
+    return ty;
 }
 
 fn parseVariableDecl(self: *Self) ParseError!*const tree.Node {
