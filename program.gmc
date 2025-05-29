@@ -5,9 +5,16 @@ struct Test {
     int y = 32;
 
     mkfn _(int xval) void {
+        println("Calling make");
         this.x = xval;
+    }
+
+    mkfn none() void {
+        println("Calling none");
+        this.x = 0;
+        this.y = 0;
     }
 }
 
-const Test x = make Test(43);
+const Test x = make:none Test;
 println("X: {" + toStr(x.x) + ", " + toStr(x.y) + ", " + toStr(x.nochange) + "}");

@@ -799,10 +799,61 @@ fn evalStructDecl(self: Self, og_node: *const Node) rt.Result {
     return rt.Result.none();
 }
 
+fn makeNotFound(instance: *ty.Struct.Instance, strict: bool, arg_len: usize, type_pos: ?Pos, func_pos: ?Pos) rt.Result {
+    if (strict) return rt.Result.err("Undefined Make", "The Make Function is not defined", type_pos);
+    if (arg_len != 0) return rt.Result.err("Unexpected arguments", "The Make Function doesn't take arguments", func_pos);
+    return rt.Result.val(.{ .struct_instance = instance });
+}
+
+fn callMakeFn(self: Self, name: []const u8, args: []const *const Node, strict: bool, s: ty.Struct, type_pos: ?Pos) rt.Result {
+    const instance = s.makeNone(self.allocator) catch |err| {
+        return rt.Result.errPrint(self.allocator, "Make Error", "Failed to make struct due to {s}", .{@errorName(err)}, null);
+    };
+
+    const sym = s.inner.get(name) orelse return makeNotFound(instance, strict, args.len, type_pos, null);
+
+    // guard checks to make sure it is a make function (if not ignore it since we didn't pass in a name)
+    if (sym.value != .func) return makeNotFound(instance, strict, args.len, type_pos, null);
+    if (sym.value.func != .base) return makeNotFound(instance, strict, args.len, type_pos, null);
+    if (sym.value.func.base.func_type != .make) return makeNotFound(instance, strict, args.len, type_pos, sym.value.func.base.name_pos);
+
+    const mkfn = sym.value.func.base;
+    if (args.len != mkfn.params.len) {
+        return rt.Result.errPrint(
+            self.allocator,
+            "Unexpected arguments",
+            "The Make Functions takes {d} arguments while {d} were given",
+            .{ mkfn.params.len, args.len },
+            null,
+        );
+    }
+
+    if (!mkfn.return_type.value.eqlBuiltin(.void)) return rt.Result.err("Invalid return type", "The Make Function must return void", mkfn.return_type_pos);
+
+    var arg_bug: [256]rt.Value = undefined;
+    const args_result = self.getArgs(&arg_bug, args);
+    if (args_result == .res) {
+        return args_result.res;
+    }
+    const actual_args = args_result.args;
+
+    std.log.debug("Calling Make Function: {s}", .{name});
+    const result = mkfn.callWithType(rt.Value{ .struct_instance = instance.ref() }, actual_args, self);
+    switch (result) {
+        .value => |val| if (val == .runtime_error) return result,
+        .signal => |sig| switch (sig) {
+            .@"return" => |val| {
+                if (val != .none) return rt.Result.err("Invalid return value", "The Make Function must return void", mkfn.name_pos);
+            },
+            else => return rt.Result.err("Signal", "The Make Function return an invalid signal", mkfn.name_pos),
+        },
+    }
+
+    return rt.Result{ .value = .{ .struct_instance = instance } };
+}
+
 fn evalMake(self: Self, og_node: *const Node) rt.Result {
     const node = og_node.make;
-
-    if (node.name != null) @panic("Not implemented");
 
     switch (node.type.value) {
         .builtin => {
@@ -822,55 +873,12 @@ fn evalMake(self: Self, og_node: *const Node) rt.Result {
                     return rt.Result{ .value = instance };
                 },
                 .@"struct" => |s| {
-                    const instance = s.makeNone(self.allocator) catch |err| {
-                        return rt.Result.errPrint(self.allocator, "Make Error", "Failed to make struct due to {s}", .{@errorName(err)}, og_node.getPos());
-                    };
+                    const name = if (node.name) |n| n.lexeme else "_";
+                    const strict = node.name != null;
 
-                    if (node.name == null) {
-                        const sym = s.inner.get("_") orelse {
-                            if (node.args.len != 0) return rt.Result.err("Unexpected arguments", "The Make Function doesn't take arguments", og_node.getPos());
-                            return rt.Result{ .value = .{ .struct_instance = instance } };
-                        };
-
-                        // guard checks to make sure it is a make function (if not ignore it since we didn't pass in a name)
-                        if (sym.value != .func) return rt.Result{ .value = .{ .struct_instance = instance } };
-                        if (sym.value.func.base.func_type != .make) return rt.Result{ .value = .{ .struct_instance = instance } };
-
-                        const mkfn = sym.value.func.base;
-                        if (node.args.len != mkfn.params.len) {
-                            return rt.Result.errPrint(
-                                self.allocator,
-                                "Unexpected arguments",
-                                "The Make Functions takes {d} arguments while {d} were given",
-                                .{ mkfn.params.len, node.args.len },
-                                og_node.getPos(),
-                            );
-                        }
-
-                        if (!mkfn.return_type.value.eqlBuiltin(.void)) return rt.Result.err("Invalid return type", "The Make Function must return void", og_node.getPos());
-
-                        var arg_bug: [256]rt.Value = undefined;
-                        const args_result = self.getArgs(&arg_bug, node.args);
-                        if (args_result == .res) {
-                            return args_result.res;
-                        }
-                        const actual_args = args_result.args;
-
-                        const result = mkfn.callWithType(rt.Value{ .struct_instance = instance.ref() }, actual_args, self);
-                        if (checkRuntimeErrorOrSignal(result, og_node)) |err| switch (err) {
-                            .value => return err,
-                            .signal => |sig| switch (sig) {
-                                .@"return" => |val| {
-                                    if (val != .none) return rt.Result.err("Invalid return value", "The Make Function must return void", og_node.getPos());
-                                },
-                                else => return rt.Result.err("Signal", "The Make Function return an invalid signal", og_node.getPos()),
-                            },
-                        };
-
-                        return rt.Result{ .value = .{ .struct_instance = instance } };
-                    }
-
-                    return rt.Result{ .value = .{ .struct_instance = instance } };
+                    const result = self.callMakeFn(name, node.args, strict, s, node.type.pos);
+                    if (checkRuntimeErrorOrSignal(result, og_node)) |err| return err;
+                    return result;
                 },
                 else => return rt.Result.err("Invalid type", "The type is not a valid type", og_node.getPos()),
             }
