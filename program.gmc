@@ -16,5 +16,5 @@ struct Test {
     }
 }
 
-const Test x = make:none Test;
+const Test x = make:none Test();
 println("X: {" + toStr(x.x) + ", " + toStr(x.y) + ", " + toStr(x.nochange) + "}");

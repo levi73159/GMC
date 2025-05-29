@@ -723,13 +723,13 @@ fn parseBasePrimary(self: *Self) ParseError!*const tree.Node {
         return self.allocNode(tree.Node{ .boolean = .{ .n = false, .orginal = tok } });
     }
 
-    if (self.consume(.make_kw)) |_| return self.parseMake();
+    if (self.consume(.make_kw)) |tok| return self.parseMake(tok);
     if (self.match(.left_bracket)) return self.parseArray();
 
     return error.ExpectedStatement;
 }
 
-fn parseMake(self: *Self) ParseError!*const tree.Node {
+fn parseMake(self: *Self, start: Token) ParseError!*const tree.Node {
     const name: ?Token = if (self.consume(.colon)) |_|
         self.consume(.identifier) orelse return error.ExpectedIdentifier
     else
@@ -737,24 +737,25 @@ fn parseMake(self: *Self) ParseError!*const tree.Node {
 
     const t = try self.parseType(false);
     if (self.consume(.left_paren)) |_| {
-        const args = try self.parseArguments();
+        const args = if (self.match(.right_paren)) &.{} else try self.parseArguments();
         _ = self.consume(.right_paren) orelse return self.badToken(error.MissingParen);
         return self.allocNode(tree.Node{
             .make = .{
+                .start = start,
                 .name = name,
                 .type = t,
                 .args = args,
             },
         });
-    } else {
-        return self.allocNode(tree.Node{
-            .make = .{
-                .name = name,
-                .type = t,
-                .args = &.{},
-            },
-        });
     }
+    return self.allocNode(tree.Node{
+        .make = .{
+            .start = start,
+            .name = name,
+            .type = t,
+            .args = &.{},
+        },
+    });
 }
 
 fn parseArguments(self: *Self) ParseError![]const *const tree.Node {

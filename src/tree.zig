@@ -68,7 +68,7 @@ pub const Node = union(enum) {
             .enum_decl => |e| e.identifier.pos,
             .struct_decl => |s| s.identifier.pos,
             .field_decl => |f| f.type.pos,
-            .make => |m| if (m.name) |name| name.pos else m.type.pos,
+            .make => |m| m.start.pos,
         };
     }
 
@@ -397,6 +397,7 @@ pub const FieldDecl = struct {
 };
 
 pub const Make = struct {
+    start: Token,
     name: ?Token,
     type: Type,
     args: []const *const Node,
