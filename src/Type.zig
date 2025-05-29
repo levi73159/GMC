@@ -174,6 +174,13 @@ pub fn equal(self: Self, other: Self) bool {
     return false;
 }
 
+pub fn getName(self: Self) []const u8 {
+    switch (self.value) {
+        .builtin => |bty| return @tagName(bty),
+        .defined => |dty| return dty.name,
+    }
+}
+
 pub fn format(
     self: Self,
     comptime _: []const u8,

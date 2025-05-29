@@ -252,7 +252,7 @@ pub fn safeEnumCast(enum_type: types.Enum, v_n: Value) !SymbolTable.SymbolValue 
     };
 }
 
-pub fn safeStructCast(struct_type: types.Struct, v_n: Value) !SymbolTable.SymbolValue {
+pub fn safeStructCast(allocator: std.mem.Allocator, struct_type: types.Struct, v_n: Value) !SymbolTable.SymbolValue {
     const v = v_n.depointerizeToValue();
     defer v.deinit();
 
@@ -261,6 +261,7 @@ pub fn safeStructCast(struct_type: types.Struct, v_n: Value) !SymbolTable.Symbol
             if (s.type_uuid == struct_type.type_uuid) break :blk SymbolTable.SymbolValue{ .struct_instance = s.ref() };
             return error.InvalidCast;
         },
+        .none => SymbolTable.SymbolValue{ .struct_instance = try struct_type.makeNone(allocator) },
         else => return error.InvalidCast, // can't cast a nonstruct to a struct
     };
 }
@@ -308,6 +309,7 @@ pub fn castToSymbolValue(allocator: std.mem.Allocator, v_n: Value, ty: Type.Type
     var v = v_n.depointerizeToValue();
     switch (v) {
         .enum_instance => v.enum_instance.strict = true,
+        .struct_instance => v.struct_instance.strict = true,
         else => {},
     }
 
@@ -317,10 +319,10 @@ pub fn castToSymbolValue(allocator: std.mem.Allocator, v_n: Value, ty: Type.Type
     };
 }
 
-pub fn castToDefinedType(_: std.mem.Allocator, v: Value, ty: Type.DefineType) !SymbolTable.SymbolValue {
+pub fn castToDefinedType(allocator: std.mem.Allocator, v: Value, ty: Type.DefineType) !SymbolTable.SymbolValue {
     return switch (ty.ty.value) {
         .@"enum" => |e| try safeEnumCast(e, v),
-        .@"struct" => |s| try safeStructCast(s, v),
+        .@"struct" => |s| try safeStructCast(allocator, s, v),
         else => return error.IsNotDefinedType,
     };
 }

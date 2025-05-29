@@ -42,7 +42,7 @@ pub const BaseFunction = struct {
     body: *const tree.Node, // root node to execute
     return_type: Type,
     parent_scope: ?*SymbolTable,
-    outer_type: ?Type,
+    outer_type: ?Type.TypeValue,
     func_type: enum { static, method, make } = .static,
     // static is a function that can be called from anywhere
     // method is a function that can only be called on a type
@@ -93,7 +93,7 @@ pub const BaseFunction = struct {
         }
 
         symbols.add("this", SymbolTable.Symbol{
-            .value = rt.castToType(base.allocator, this, self.outer_type orelse unreachable) catch unreachable, // this cast should never fail
+            .value = rt.castToSymbolValue(base.allocator, this, self.outer_type orelse unreachable) catch unreachable, // this cast should never fail
             .type = Type.any(),
             .is_const = true,
         }) catch @panic("out of memory");
@@ -136,7 +136,7 @@ pub const BaseFunction = struct {
 
         if (self.func_type == .make or self.func_type == .method) {
             symbols.add("this", SymbolTable.Symbol{
-                .value = rt.castToType(base.allocator, .none, self.outer_type orelse unreachable) catch unreachable, // this cast should never fail
+                .value = rt.castToSymbolValue(base.allocator, .none, self.outer_type orelse unreachable) catch unreachable, // this cast should never fail
                 .type = Type.any(),
                 .is_const = true,
             }) catch |err| switch (err) {
@@ -169,8 +169,8 @@ pub const BaseFunction = struct {
             else => return sigOrErr,
         };
 
-        if (self.return_type.equal(Type.init(.void, null))) {
-            const msg = std.fmt.allocPrint(base.allocator, "Function return an expected type, Expected {s} got void", .{@tagName(self.return_type.value)}) catch unreachable;
+        if (!self.return_type.equal(Type.init(.void, null))) {
+            const msg = std.fmt.allocPrint(base.allocator, "Function return an expected type, Expected {s} got void", .{self.return_type.getName()}) catch unreachable;
             return Result.errHeap(base.allocator, "Invalid return type", msg, self.return_type_pos);
         }
 

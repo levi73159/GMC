@@ -1,15 +1,13 @@
 struct Test {
-    var int x;
-    var int y = 74;
     const float nochange = 69420;
 
     int x;
     int y = 32;
+
+    mkfn _(int xval) void {
+        this.x = xval;
+    }
 }
 
-struct Strange {
-    int z = 54;
-}
-
-const Test x = make Test;
+const Test x = make Test(43);
 println("X: {" + toStr(x.x) + ", " + toStr(x.y) + ", " + toStr(x.nochange) + "}");

@@ -21,8 +21,13 @@ symbols: *SymbolTable,
 heap_str_only: bool = false,
 static: bool = false,
 
+static_checking: bool = true,
+
 pub fn init(allocator: std.mem.Allocator, symbols: *SymbolTable) Self {
-    return Self{ .allocator = allocator, .symbols = symbols };
+    return Self{
+        .allocator = allocator,
+        .symbols = symbols,
+    };
 }
 
 pub fn newScope(self: Self, symbols: *SymbolTable, allocator: std.mem.Allocator) Self {
@@ -486,14 +491,16 @@ fn evalFunctionDecl(self: Self, og_node: *const Node) rt.Result {
         .name_pos = node.identifier.pos,
         .return_type_pos = node.ret_type.pos,
 
-        .outer_type = null, // no need for outer type
+        .outer_type = null,
         .func_type = if (node.is_make) .make else .static,
     };
 
-    if (function.staticCheck(self)) |sigOrErr| switch (sigOrErr) {
-        .signal => return rt.Result.err("Static Error", "unhandled signal", node.identifier.pos),
-        else => return sigOrErr,
-    };
+    if (self.static_checking) {
+        if (function.staticCheck(self)) |sigOrErr| switch (sigOrErr) {
+            .signal => return rt.Result.err("Static Error", "unhandled signal", node.identifier.pos),
+            else => return sigOrErr,
+        };
+    }
 
     // check if return type matches function body
     self.symbols.add(node.identifier.lexeme, SymbolTable.Symbol{
@@ -545,8 +552,8 @@ fn handleFunctionResult(self: Self, func: ty.Function, result: rt.Result, og_nod
     };
     switch (func) {
         .base => |basef| {
-            if (basef.return_type.value.eqlBuiltin(.void)) {
-                const msg = std.fmt.allocPrint(self.allocator, "Function return an expected type, Expected {s} got void", .{@tagName(func.base.return_type.value)}) catch unreachable;
+            if (!basef.return_type.value.eqlBuiltin(.void)) {
+                const msg = std.fmt.allocPrint(self.allocator, "Function return an expected type, Expected {s} got void", .{basef.return_type.getName()}) catch unreachable;
                 return rt.Result.errHeap(self.allocator, "Invalid return type", msg, func.base.return_type_pos);
             }
             return rt.Result.none();
@@ -561,6 +568,10 @@ fn handleFunctionResult(self: Self, func: ty.Function, result: rt.Result, og_nod
 fn callValue(self: Self, og_node: *const Node, callee_value: ?rt.Value, callee_pos: ?Pos, value: rt.Value, args: []const *const Node) rt.Result {
     switch (value) {
         .func => |func| {
+            if (func == .base and func.base.func_type == .make) {
+                return rt.Result.err("Cannot call make function", "Cannot call make function", callee_pos);
+            }
+
             var args_buf: [256]rt.Value = undefined; // 256 is being geneous just in case the user tries to push the limit
             const args_result = self.getArgs(&args_buf, args);
             if (args_result == .res) {
@@ -726,7 +737,8 @@ fn evalStructDecl(self: Self, og_node: *const Node) rt.Result {
     var fields = std.ArrayList(ty.Struct.Field).init(self.allocator);
     defer fields.deinit();
 
-    const scope = self.newScope(inner_table, self.allocator);
+    var scope = self.newScope(inner_table, self.allocator);
+    scope.static_checking = false; // disable static checking
 
     for (node.inner) |inner_node| {
         const result = switch (inner_node.*) {
@@ -769,6 +781,21 @@ fn evalStructDecl(self: Self, og_node: *const Node) rt.Result {
     const global_uuid = Type.setType(self.allocator, node.identifier.lexeme, ptr);
     ptr.value.@"struct".global_uuid = global_uuid;
 
+    var it = struct_decl.inner.table.iterator();
+    while (it.next()) |entry| {
+        switch (entry.value_ptr.value) {
+            .func => |*f| {
+                const base = &f.base;
+                base.outer_type = Type.getTypeFromUUID(global_uuid);
+                if (base.staticCheck(scope)) |sigOrErr| switch (sigOrErr) {
+                    .signal => return rt.Result.err("Static Error", "unhandled signal", node.identifier.pos),
+                    else => return sigOrErr,
+                };
+            },
+            else => {},
+        }
+    }
+
     return rt.Result.none();
 }
 
@@ -795,11 +822,53 @@ fn evalMake(self: Self, og_node: *const Node) rt.Result {
                     return rt.Result{ .value = instance };
                 },
                 .@"struct" => |s| {
-                    if (node.args.len != 0) @panic("TODO");
-
                     const instance = s.makeNone(self.allocator) catch |err| {
                         return rt.Result.errPrint(self.allocator, "Make Error", "Failed to make struct due to {s}", .{@errorName(err)}, og_node.getPos());
                     };
+
+                    if (node.name == null) {
+                        const sym = s.inner.get("_") orelse {
+                            if (node.args.len != 0) return rt.Result.err("Unexpected arguments", "The Make Function doesn't take arguments", og_node.getPos());
+                            return rt.Result{ .value = .{ .struct_instance = instance } };
+                        };
+
+                        // guard checks to make sure it is a make function (if not ignore it since we didn't pass in a name)
+                        if (sym.value != .func) return rt.Result{ .value = .{ .struct_instance = instance } };
+                        if (sym.value.func.base.func_type != .make) return rt.Result{ .value = .{ .struct_instance = instance } };
+
+                        const mkfn = sym.value.func.base;
+                        if (node.args.len != mkfn.params.len) {
+                            return rt.Result.errPrint(
+                                self.allocator,
+                                "Unexpected arguments",
+                                "The Make Functions takes {d} arguments while {d} were given",
+                                .{ mkfn.params.len, node.args.len },
+                                og_node.getPos(),
+                            );
+                        }
+
+                        if (!mkfn.return_type.value.eqlBuiltin(.void)) return rt.Result.err("Invalid return type", "The Make Function must return void", og_node.getPos());
+
+                        var arg_bug: [256]rt.Value = undefined;
+                        const args_result = self.getArgs(&arg_bug, node.args);
+                        if (args_result == .res) {
+                            return args_result.res;
+                        }
+                        const actual_args = args_result.args;
+
+                        const result = mkfn.callWithType(rt.Value{ .struct_instance = instance.ref() }, actual_args, self);
+                        if (checkRuntimeErrorOrSignal(result, og_node)) |err| switch (err) {
+                            .value => return err,
+                            .signal => |sig| switch (sig) {
+                                .@"return" => |val| {
+                                    if (val != .none) return rt.Result.err("Invalid return value", "The Make Function must return void", og_node.getPos());
+                                },
+                                else => return rt.Result.err("Signal", "The Make Function return an invalid signal", og_node.getPos()),
+                            },
+                        };
+
+                        return rt.Result{ .value = .{ .struct_instance = instance } };
+                    }
 
                     return rt.Result{ .value = .{ .struct_instance = instance } };
                 },
